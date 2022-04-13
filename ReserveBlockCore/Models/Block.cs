@@ -115,7 +115,7 @@ namespace ReserveBlockCore.Models
 			builder.AppendFormat("{0},", TotalAmount);
 			builder.AppendFormat("{0},", TotalReward);
 			builder.AppendFormat("{0},", Size);
-			builder.AppendFormat("{0},", BCraftTime);
+			builder.AppendFormat("{0}", BCraftTime);
 
 			return builder.ToString();
 		}
