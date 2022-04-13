@@ -336,7 +336,7 @@ namespace ReserveBlockCore.Data
         public static bool ToCSV(string path)
         {
             // Column Headers
-            string headerInfo = "Block Height,Version,Hash,Timestamp,Chain Validator,NumOfTx,TotalAmount,TotalReward,Size,BCraftTime";
+            string headerInfo = "Block Height,Version,Hash,Timestamp,Chain Validator,NumOfTx,TotalAmount,TotalReward,Size,BCraftTime,";
 
             // Make/open file.
             using (StreamWriter sw = File.CreateText(path))
