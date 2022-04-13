@@ -270,3 +270,5 @@ __pycache__/
 ReserveBlockCore/Databases/debug.txt
 ReserveBlockCore/Databases/waldata/Databases/Databases/debug.txt
 ReserveBlockCore/Databases/bakpre18/debug.txt
+*.csv
+*.xlsx
