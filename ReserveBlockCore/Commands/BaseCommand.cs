@@ -98,6 +98,13 @@ namespace ReserveBlockCore.Commands
                     commandResult = "_EXIT";
                     break;
 
+                case "CSV":
+                    if (BlockchainData.ToCSV())
+                        Console.WriteLine("CSV Output to ...");
+                    else
+                        Console.WriteLine("CSV Failed to output.");
+                    break;
+
                 default:
                     commandResult = "Not a recognized command. Please Try Again...";
                     break;

@@ -98,5 +98,13 @@ namespace ReserveBlockCore.Models
 			var hashRoot = MerkleService.CreateMerkleRoot(txsHash.ToArray());
 			return hashRoot;
 		}
+
+		// Creates a one line representation of the block in CSV format.
+		public override string ToString()
+		{
+			// TODO: make string
+			// Header Template "Block Height,Version,Hash,Timestamp,Chain Validator,NumOfTx,TotalAmount,TotalReward,Size,BCraftTime"
+			return "";
+		}
 	}
 }

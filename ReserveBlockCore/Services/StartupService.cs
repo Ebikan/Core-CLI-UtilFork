@@ -690,6 +690,7 @@ namespace ReserveBlockCore.Services
             Console.WriteLine("| 10. Enable API (Turn On and Off)     |");
             Console.WriteLine("| 11. Stop Masternode                  |");
             Console.WriteLine("| 12. Stop Datanode                    |");
+            Console.WriteLine("| CSV. Generate CSV of Blockchain.     |");
             Console.WriteLine("| 13. Exit                             |");
             Console.WriteLine("|======================================|");
         }
