@@ -342,7 +342,7 @@ namespace ReserveBlockCore.Data
             foreach (var block in blocks.FindAll())
             {
                 // TODO: Output all block CSV Lines to file
-                block.ToString();
+                Console.WriteLine(block.ToString());
             }
             return true;
         }

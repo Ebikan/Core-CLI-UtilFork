@@ -104,7 +104,20 @@ namespace ReserveBlockCore.Models
 		{
 			// TODO: make string
 			// Header Template "Block Height,Version,Hash,Timestamp,Chain Validator,NumOfTx,TotalAmount,TotalReward,Size,BCraftTime"
-			return "";
+			global::System.Text.StringBuilder builder = new global::System.Text.StringBuilder(64);
+
+			builder.AppendFormat("{0},", Height);
+			builder.AppendFormat("{0},", Version);
+			builder.AppendFormat("{0},", Hash);
+			builder.AppendFormat("{0},", Timestamp);
+			builder.AppendFormat("{0},", Validator);
+			builder.AppendFormat("{0},", NumOfTx);
+			builder.AppendFormat("{0},", TotalAmount);
+			builder.AppendFormat("{0},", TotalReward);
+			builder.AppendFormat("{0},", Size);
+			builder.AppendFormat("{0},", BCraftTime);
+
+			return builder.ToString();
 		}
 	}
 }
