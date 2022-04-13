@@ -333,17 +333,24 @@ namespace ReserveBlockCore.Data
 
         }
 
-        public static bool ToCSV()
+        public static bool ToCSV(string path)
         {
             // Column Headers
             string headerInfo = "Block Height,Version,Hash,Timestamp,Chain Validator,NumOfTx,TotalAmount,TotalReward,Size,BCraftTime";
 
-            var blocks = GetBlocks();
-            foreach (var block in blocks.FindAll())
+            // Make/open file.
+            using (StreamWriter sw = File.CreateText(path))
             {
-                // TODO: Output all block CSV Lines to file
-                Console.WriteLine(block.ToString());
+                sw.WriteLine(headerInfo);
+
+                var blocks = GetBlocks();
+                foreach (var block in blocks.FindAll())
+                {
+                    // TODO: Output all block CSV Lines to file
+                    sw.WriteLine(block.ToString());
+                }
             }
+
             return true;
         }
 

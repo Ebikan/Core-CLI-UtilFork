@@ -99,8 +99,11 @@ namespace ReserveBlockCore.Commands
                     break;
 
                 case "CSV":
-                    if (BlockchainData.ToCSV())
-                        Console.WriteLine("CSV Output to ...");
+                    // CSV file path
+                    string path = Directory.GetCurrentDirectory() + @"\RBX_BlockData.csv";
+                    // Output to CSV and report.
+                    if (BlockchainData.ToCSV(path))
+                        Console.WriteLine("CSV Output to " + path + ".");
                     else
                         Console.WriteLine("CSV Failed to output.");
                     break;
