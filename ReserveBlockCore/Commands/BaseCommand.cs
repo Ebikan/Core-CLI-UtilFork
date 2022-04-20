@@ -98,16 +98,28 @@ namespace ReserveBlockCore.Commands
                     commandResult = "_EXIT";
                     break;
 
-                case "CSV":
-                    // CSV file path
-                    string path = Directory.GetCurrentDirectory() + @"\RBX_BlockData.csv";
-                    // Output to CSV and report.
-                    if (BlockchainData.ToCSV(path))
-                        Console.WriteLine("CSV Output to " + path + ".");
-                    else
-                        Console.WriteLine("CSV Failed to output.");
-                    break;
-
+                case "20":
+                    {
+                        // CSV file path
+                        string path = Directory.GetCurrentDirectory() + @"\RBX_BlockData.csv";
+                        // Output to CSV and report.
+                        if (BlockchainData.ToCSV(path))
+                            Console.WriteLine("CSV Output to " + path + ".");
+                        else
+                            Console.WriteLine("CSV Failed to output.");
+                        break;
+                    }
+                case "21":
+                    {
+                        // CSV file path
+                        string path = Directory.GetCurrentDirectory() + @"\RBX_TransactionData.csv";
+                        // Output to CSV and report.
+                        if (TransactionData.ToCSV(path))
+                            Console.WriteLine("CSV Output to " + path + ".");
+                        else
+                            Console.WriteLine("CSV Failed to output.");
+                        break;
+                    }
                 default:
                     commandResult = "Not a recognized command. Please Try Again...";
                     break;

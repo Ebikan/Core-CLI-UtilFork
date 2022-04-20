@@ -346,7 +346,6 @@ namespace ReserveBlockCore.Data
                 var blocks = GetBlocks();
                 foreach (var block in blocks.FindAll())
                 {
-                    // TODO: Output all block CSV Lines to file
                     sw.WriteLine(block.ToString());
                 }
             }

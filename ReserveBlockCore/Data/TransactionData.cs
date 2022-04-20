@@ -328,6 +328,31 @@ namespace ReserveBlockCore.Data
 
             return Ecdsa.verify(message, Signature.fromBase64(sigScriptArray[0]), publicKey);
         }
+
+
+
+        public static bool ToCSV(string path)
+        {
+            // Column Headers
+            string headerInfo = "Height,Timestamp,FromAddress,ToAddress,Amount,Fee";
+
+            // Make/open file.
+            using (StreamWriter sw = File.CreateText(path))
+            {
+                sw.WriteLine(headerInfo);
+
+                var blocks = Block.GetBlocks();
+                foreach (var block in blocks.FindAll())
+                {
+                    
+                    foreach(var transaction in block.Transactions)
+                        sw.WriteLine(transaction.ToString());
+                }
+            }
+
+            return true;
+        }
+
     }
 
 }

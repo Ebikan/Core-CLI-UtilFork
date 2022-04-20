@@ -49,5 +49,21 @@ namespace ReserveBlockCore.Models
             return trans;
         }
 
+        // Creates a one line representation of the transaction in CSV format.
+        public override string ToString()
+        {
+            // TODO: make string
+            // Header Template "Height,Timestamp,FromAddress,ToAddress,Amount,Fee"
+            global::System.Text.StringBuilder builder = new global::System.Text.StringBuilder(64);
+
+            builder.AppendFormat("{0},", Height);
+            builder.AppendFormat("{0},", Timestamp);
+            builder.AppendFormat("{0},", FromAddress);
+            builder.AppendFormat("{0},", ToAddress);
+            builder.AppendFormat("{0},", Amount);
+            builder.AppendFormat("{0}", Fee);
+
+            return builder.ToString();
+        }
     }
 }
