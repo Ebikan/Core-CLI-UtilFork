@@ -75,14 +75,15 @@ namespace ReserveBlockCore.Data
                 var timestamp = TimeUtil.GetTime();
                 var transactionList = new List<Transaction>();
 
-                var coinbase_tx = new Transaction
-                {
-                    Amount = 0,
-                    ToAddress = validator,
-                    Fee = 0.00M,
-                    Timestamp = timestamp,
-                    FromAddress = "Coinbase_TrxFees",
-                };
+                //var coinbase_tx = new Transaction
+                //{
+                //    Amount = 0,
+                //    ToAddress = validator,
+                //    Fee = 0.00M,
+                //    Timestamp = timestamp,
+                //    FromAddress = "Coinbase_TrxFees",
+                //    TransactionType = TransactionType.TX
+                //};
 
                 var coinbase_tx2 = new Transaction
                 {
@@ -91,15 +92,17 @@ namespace ReserveBlockCore.Data
                     Fee = 0.00M,
                     Timestamp = timestamp,
                     FromAddress = "Coinbase_BlkRwd",
+                    TransactionType = TransactionType.TX
                 };
 
                 if (processedTxPool.Count() > 0)
                 {
-                    coinbase_tx.Amount = GetTotalFees(processedTxPool);
-                    coinbase_tx.Build();
+                    //commenting these out to test burning of fee.
+                    //coinbase_tx.Amount = GetTotalFees(processedTxPool);
+                    //coinbase_tx.Build();
                     coinbase_tx2.Build();
 
-                    transactionList.Add(coinbase_tx);
+                    //transactionList.Add(coinbase_tx);
                     transactionList.Add(coinbase_tx2);
 
                     transactionList.AddRange(processedTxPool);
@@ -289,7 +292,7 @@ namespace ReserveBlockCore.Data
                 {
                     //database corrupt
                     Program.DatabaseCorruptionDetected = true;
-                    //DbContext.DeleteCorruptDb();
+                    ErrorLogUtility.LogError($"Database Corrupted at block height: {block.Height}", "BlockchainData.AddBlock()");
                 }
             }
         }

@@ -10,45 +10,9 @@ namespace ReserveBlockCore.Utilities
     {
         public static async void PrintStaticVariables()
         {
-            Console.WriteLine("Validator Address: " + Program.ValidatorAddress);
-            Console.WriteLine("Block Craft: " + Program.BlockCrafting.ToString());
-            Console.WriteLine("Blocks Downloading: " + Program.BlocksDownloading.ToString());
-            Console.WriteLine("Is Crafting: " + Program.IsCrafting.ToString());
-            Console.WriteLine("Peers Connecting: " + Program.PeersConnecting.ToString());
-            Console.WriteLine("Stop all timers: " + Program.StopAllTimers.ToString());
-            Console.WriteLine("Queue Processing: " + BlockQueueService.QueueProcessing);
-            var peersConnected = await P2PClient.ArePeersConnected();
-            Console.WriteLine("Peers connected: " + peersConnected.Item1.ToString());
-            Console.WriteLine("Peers connected Count: " + peersConnected.Item2.ToString());
-            var blockHeight = Program.BlockHeight.ToString();
-            Console.WriteLine("Block Height: " + blockHeight.ToString());
-            Program.PrintConsoleErrors = Program.PrintConsoleErrors == false ? true : false;
-            Console.WriteLine("Showing Block Download Errors: " + Program.PrintConsoleErrors.ToString());
-            Console.WriteLine("Adjudicate? " + Program.Adjudicate.ToString());
-            Console.WriteLine("Adjudicate Locked? " + Program.AdjudicateLock.ToString());
-            Console.WriteLine("Lead Adjudicator: " + (Program.LeadAdjudicator != null ? Program.LeadAdjudicator.Address : "NA"));
-            Console.WriteLine("Last Adjudicate Time: " + Program.LastAdjudicateTime.ToString());
+            var staticVars = await GetStaticVars();
 
-            Console.WriteLine("Re-establish Peers? y/n");
-            var reconnect = Console.ReadLine();
-            if(reconnect != null)
-            {
-                if (reconnect == "y")
-                {
-                    await StartupService.StartupPeers();
-                }
-            }
-            Console.WriteLine("Force Redownload Block? y/n");
-            var blockDownload = Console.ReadLine();
-            if(blockDownload != null)
-            {
-                if(blockDownload == "y")
-                {
-                    Console.WriteLine("Blocks Downloading...");
-                    await StartupService.DownloadBlocksOnStart();
-                    Console.WriteLine("Blocks Done...");
-                }
-            }
+            Console.WriteLine(staticVars);
             
             Console.WriteLine("End.");
         }
@@ -63,35 +27,70 @@ namespace ReserveBlockCore.Utilities
             var nodes = Program.Nodes;
             var nodeList = nodes.ToList();
             var lastBlock = Program.LastBlock;
+            var adjudicator = Program.Adjudicate.ToString();
+            var adjudicatorConnection = P2PClient.IsAdjConnected1.ToString();
+            var fortisPoolCount = P2PAdjServer.FortisPool.Count().ToString();
+            var isChainSynced = Program.IsChainSynced.ToString();
+            var peerCount = await P2PServer.GetConnectedPeerCount();
+            var valCount = await P2PAdjServer.GetConnectedValCount();
+            var lastTaskSent = P2PClient.LastTaskSentTime.ToString();
+            var lastTaskResult = P2PClient.LastTaskResultTime.ToString();
+            var lastTaskBlockHeight = P2PClient.LastTaskBlockHeight.ToString();
+            var lastTaskError = P2PClient.LastTaskError.ToString();
+            var hdWallet = Program.HDWallet.ToString();
+            var reportedIPs = string.Join(",", P2PClient.ReportedIPs);
+            var mostLikelyIP = P2PClient.ReportedIPs.Count() != 0 ? P2PClient.ReportedIPs.GroupBy(x => x).OrderByDescending(y => y.Count()).Select(y => y.Key).First().ToString() : "NA";
 
             var validatorAddress = "Validator Address: " + Program.ValidatorAddress;
             var isBlockCrafting = "Block Craft: " + Program.BlockCrafting.ToString();
             var isBlocksDownloading = "Blocks Downloading: " + Program.BlocksDownloading.ToString();
+            var isChainSyncing = "Chain Sync State (True = done, false = blocks downloading): " + isChainSynced;
             var isCrafting = "Is Crafting: " + Program.IsCrafting.ToString();
             var isPeersConnecting = "Peers Connecting Startup: " + Program.PeersConnecting.ToString();
             var isStopAllTimers = "Stop all timers: " + Program.StopAllTimers.ToString();
             var isQueueProcessing = "Queue Processing: " + BlockQueueService.QueueProcessing;
             var isPeerConnected = "Peers connected: " + peersConnected.Item1.ToString();
             var peerConnectedCount = "Peers connected Count: " + peersConnected.Item2.ToString();
+            var peerConnectedToMe = "Peers connected to you: " + peerCount.ToString();
             var blockHeightStr = "Block Height: " + blockHeight.ToString();
             var validatorStr = "Validator Address From DB: " + validator;
             var remoteLock = "Remote Lock: " + Program.RemoteCraftLock.ToString();
             var remoteLockTime = "Remote Lock Time: " + (Program.RemoteCraftLockTime == null ?  "NA" : Program.RemoteCraftLockTime.Value.ToShortTimeString());
             var isResyncing = "Chain Resyncing? : " + Program.IsResyncing.ToString();
             var isCorrupt = "Database Corruption Detected? : " + Program.DatabaseCorruptionDetected.ToString();
+            var adjudicatorText = "Is Adjudicating?: " + adjudicator;
+            var adjConnection = "Adjudicator Connected?: " + adjudicatorConnection;
+            var fortisPoolText = "*Only for Adjudicators* Fortis Pool Count: " + fortisPoolCount.ToString();
+            var valCountText = "*Only for Adjudicators* Validator Pool Count: " + valCount.ToString();
+            var lastTaskSentText = "*Only for Validators* Most Recent Task (Unsolved) Sent at: " + lastTaskSent;
+            var lastTaskResultText = "*Only for Validators* Latest Task (Solved) Result Received at: " + lastTaskResult;
+            var lastTaskBlockHeightText = "*Only for Validators* Last Task Block Height : " + lastTaskBlockHeight;
+            var lastTaskErrorText = "*Only for Validators* Last Task Error : " + lastTaskError;
+            var hdWalletText = $"HD Wallet? : {hdWallet}";
+            var reportedIPText = $"Reported IPs: {reportedIPs}";
+            var externalIPText = $"External IP: {mostLikelyIP}";
+
             var lastBlockInfo = "Height: " + lastBlock.Height.ToString() + " - Hash: " + lastBlock.Hash + " Timestamp: " + lastBlock.Timestamp
                 + " - Validator: " + lastBlock.Validator;
 
             StringBuilder strBld = new StringBuilder();
             strBld.AppendLine(validatorAddress);
             strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(hdWalletText);
+            strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(isCorrupt);
+            strBld.AppendLine("---------------------------------------------------------------------");
             strBld.AppendLine(isBlockCrafting);
             strBld.AppendLine("---------------------------------------------------------------------");
             strBld.AppendLine(isBlocksDownloading);
             strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(isChainSyncing);
+            strBld.AppendLine("---------------------------------------------------------------------");
             strBld.AppendLine(isCrafting);
             strBld.AppendLine("---------------------------------------------------------------------");
             strBld.AppendLine(isPeersConnecting);
+            strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(peerConnectedToMe);
             strBld.AppendLine("---------------------------------------------------------------------");
             strBld.AppendLine(isStopAllTimers);
             strBld.AppendLine("---------------------------------------------------------------------");
@@ -111,6 +110,22 @@ namespace ReserveBlockCore.Utilities
             strBld.AppendLine("---------------------------------------------------------------------");
             strBld.AppendLine(isResyncing);
             strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(adjudicatorText);
+            strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(adjConnection);
+            strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(fortisPoolText);
+            strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(valCountText);
+            strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(lastTaskResultText);
+            strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(lastTaskSentText);
+            strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(lastTaskBlockHeightText);
+            strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(lastTaskErrorText);
+            strBld.AppendLine("---------------------------------------------------------------------");
             strBld.AppendLine("-------------------------------Node Info-----------------------------");
             nodeList.ForEach(x => {
                 var ip = x.NodeIP;
@@ -121,6 +136,10 @@ namespace ReserveBlockCore.Utilities
                 strBld.AppendLine("Node: " + ip + " - Last Checked: " + lastcheck + " - Height: " + height + " - Latency: " + latency);
                 strBld.AppendLine("---------------------------------------------------------------------");
             });
+            strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(reportedIPText);
+            strBld.AppendLine("---------------------------------------------------------------------");
+            strBld.AppendLine(externalIPText);
             strBld.AppendLine("---------------------------------------------------------------------");
             strBld.AppendLine("-------------------------------Block Info----------------------------");
             strBld.AppendLine(lastBlockInfo);

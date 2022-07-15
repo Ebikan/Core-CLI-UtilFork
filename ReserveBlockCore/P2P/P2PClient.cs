@@ -1,5 +1,6 @@
 ﻿using LiteDB;
 using Microsoft.AspNetCore.SignalR.Client;
+using Newtonsoft.Json;
 using ReserveBlockCore.Data;
 using ReserveBlockCore.Models;
 using ReserveBlockCore.Nodes;
@@ -15,10 +16,18 @@ namespace ReserveBlockCore.P2P
 {
     public class P2PClient
     {
+        #region Static Variables
         public static List<Peers>? ActivePeerList { get; set; }
         public static List<string> ReportedIPs = new List<string>();
         public static long LastSentBlockHeight = -1;
+        public static DateTime? AdjudicatorConnectDate = null;
+        public static DateTime? LastTaskSentTime = null;
+        public static DateTime? LastTaskResultTime = null;
+        public static long LastTaskBlockHeight = 0;
+        public static bool LastTaskError = false;
         public static Dictionary<int, string>? NodeDict { get; set; }
+
+        #endregion
 
         #region HubConnection Variables
         /// <summary>
@@ -272,7 +281,7 @@ namespace ReserveBlockCore.P2P
                 {
                     hubConnection1 = new HubConnectionBuilder()
                     .WithUrl(url, options => {
-
+   
                     })
                     .WithAutomaticReconnect()
                     .Build();
@@ -332,7 +341,6 @@ namespace ReserveBlockCore.P2P
                             }
                         }
                     });
-
 
                     hubConnection2.StartAsync().Wait();
 
@@ -517,12 +525,38 @@ namespace ReserveBlockCore.P2P
                     options.Headers.Add("uName", uName);
                     options.Headers.Add("signature", signature);
                     options.Headers.Add("walver", Program.CLIVersion);
+
                 })
                 .WithAutomaticReconnect()
                 .Build();
 
+                LogUtility.Log("Connecting to Adjudicator", "ConnectAdjudicator()");
+
+                hubAdjConnection1.Reconnecting += (sender) =>
+                {
+                    LogUtility.Log("Reconnecting to Adjudicator", "ConnectAdjudicator()");
+                    Console.WriteLine("[" + DateTime.Now.ToString() + "] Connection to adjudicator lost. Attempting to Reconnect.");
+                    return Task.CompletedTask;
+                };
+
+                hubAdjConnection1.Reconnected += (sender) =>
+                {
+                    LogUtility.Log("Success! Reconnected to Adjudicator", "ConnectAdjudicator()");
+                    Console.WriteLine("[" + DateTime.Now.ToString() + "] Connection to adjudicator has been restored.");
+                    return Task.CompletedTask;
+                };
+
+                hubAdjConnection1.Closed += (sender) =>
+                {
+                    LogUtility.Log("Closed to Adjudicator", "ConnectAdjudicator()");
+                    Console.WriteLine("[" + DateTime.Now.ToString() + "] Connection to adjudicator has been closed.");
+                    return Task.CompletedTask;
+                };
+
+                AdjudicatorConnectDate = DateTime.UtcNow;
+
                 hubAdjConnection1.On<string, string>("GetAdjMessage", async (message, data) => {
-                    if (message == "task" || message == "taskResult" || message == "fortisPool" || message == "status" || message == "tx")
+                    if (message == "task" || message == "taskResult" || message == "fortisPool" || message == "status" || message == "tx" || message == "badBlock")
                     {
                         switch(message)
                         {
@@ -537,9 +571,14 @@ namespace ReserveBlockCore.P2P
                                 break;
                             case "status":
                                 Console.WriteLine(data);
+                                ValidatorLogUtility.Log("Connected to Validator Pool", "P2PClient.ConnectAdjudicator()", true);
+                                LogUtility.Log("Success! Connected to Adjudicator", "ConnectAdjudicator()");
                                 break;
                             case "tx":
                                 await ValidatorProcessor.ProcessData(message, data);
+                                break;
+                            case "badBlock":
+                                //do something
                                 break;
                         }
                     }
@@ -550,7 +589,7 @@ namespace ReserveBlockCore.P2P
             }
             catch (Exception ex)
             {
-                
+                ValidatorLogUtility.Log("Failed! Connecting to Adjudicator: Reason - " + ex.Message, "ConnectAdjudicator()");
             }
         }
 
@@ -622,8 +661,8 @@ namespace ReserveBlockCore.P2P
                                 }
                                 else
                                 {
-                                    peer.FailCount += 1;
-                                    peerDB.Update(peer);
+                                    //peer.FailCount += 1;
+                                    //peerDB.Update(peer);
                                 }
                             }
 
@@ -689,14 +728,27 @@ namespace ReserveBlockCore.P2P
                             var result = await hubAdjConnection1.InvokeCoreAsync<bool>("ReceiveTaskAnswer", args: new object?[] { taskAnswer });
                             if (result)
                             {
+                                LastTaskError = false;
+                                LastTaskSentTime = DateTime.Now;
                                 LastSentBlockHeight = taskAnswer.Block.Height;
+                            }
+                            else
+                            {
+                                LastTaskError = true;
+                                ValidatorLogUtility.Log("Block passed validation, but received a false result from adjudicator and failed.", "P2PClient.SendTaskAnswer()");
                             }
                         }
                     }
                 }
                 catch(Exception ex)
                 {
+                    LastTaskError = true;
 
+                    ValidatorLogUtility.Log("Unhandled Error Sending Task. Check Error Log for more details.", "P2PClient.SendTaskAnswer()");
+
+                    string errorMsg = string.Format("Error Sending Task - {0}. Error Message : {1}", taskAnswer != null ? 
+                        taskAnswer.SubmitTime.ToString() : "No Time", ex.Message);
+                    ErrorLogUtility.LogError(errorMsg, "SendTaskAnswer(TaskAnswer taskAnswer)");
                 }
             }
             else
@@ -724,7 +776,8 @@ namespace ReserveBlockCore.P2P
             }
             else
             {
-                //reconnect and then send
+                //temporary connection to an adj to send transaction to get broadcasted to global pool
+                SendTXToAdj(tx);
             }
 
             var adjudicator2Connected = IsAdjConnected2;
@@ -741,9 +794,51 @@ namespace ReserveBlockCore.P2P
             }
             else
             {
-                //reconnect and then send
+                //temporary connection to an adj to send transaction to get broadcasted to global pool
+                SendTXToAdj(tx);
             }
         }
+
+
+        //This method will need to eventually be modified when the adj is a multi-pool and not a singular-pool
+        private static async void SendTXToAdj(Transaction trx)
+        {
+            try
+            {
+                var adjudicator = Adjudicators.AdjudicatorData.GetLeadAdjudicator();
+                if (adjudicator != null)
+                {
+                    var url = "http://" + adjudicator.NodeIP + ":" + Program.Port + "/adjudicator";
+                    var _tempHubConnection = new HubConnectionBuilder().WithUrl(url).Build();
+                    var alive = _tempHubConnection.StartAsync();
+                    var response = await _tempHubConnection.InvokeCoreAsync<bool>("ReceiveTX", args: new object?[] { trx });
+                    if(response != true)
+                    {
+                        var errorMsg = string.Format("Failed to send TX to Adjudicator.");
+                        ErrorLogUtility.LogError(errorMsg, "P2PClient.SendTXToAdj(Transaction trx) - try");
+                        try { await _tempHubConnection.StopAsync(); }
+                        finally
+                        {
+                            await _tempHubConnection.DisposeAsync();
+                        }
+                    }
+                    else
+                    {
+                        try { await _tempHubConnection.StopAsync(); }
+                        finally
+                        {
+                            await _tempHubConnection.DisposeAsync();
+                        }
+                    }
+                }
+            }
+            catch(Exception ex)
+            {
+                var errorMsg = string.Format("Failed to send TX to Adjudicator. Error Message : {0}", ex.Message);
+                ErrorLogUtility.LogError(errorMsg, "P2PClient.SendTXToAdj(Transaction trx) - catch");
+            }
+        }
+
         #endregion
 
         #region Get Block
@@ -752,7 +847,7 @@ namespace ReserveBlockCore.P2P
             var currentBlock = Program.BlockHeight != -1 ? Program.LastBlock.Height : -1; //-1 means fresh client with no blocks
             var nBlock = new Block();
             List<Block> blocks = new List<Block>();
-            var peersConnected = await P2PClient.ArePeersConnected();
+            var peersConnected = await ArePeersConnected();
 
             if (peersConnected.Item1 == false)
             {
@@ -771,7 +866,6 @@ namespace ReserveBlockCore.P2P
                             blocks.Add(nBlock);
                             currentBlock += 1;
                         }
-
                     }
                 }
                 catch (Exception ex)
@@ -940,17 +1034,7 @@ namespace ReserveBlockCore.P2P
                 catch (Exception ex)
                 {
                     //node is offline
-                    var nodeInfo = NodeDict[1];
-                    if (nodeInfo != null)
-                    {
-                        var node = nodeList.Where(x => x.NodeIP == nodeInfo).FirstOrDefault();
-                        if (node != null)
-                        {
-                            Program.Nodes.Remove(node);
-                        }
-                        hubConnection1 = null;
-                        NodeDict[1] = null;
-                    }
+                    HandleDisconnectedNode(1, hubConnection1);
                 }
 
                 try
@@ -992,18 +1076,7 @@ namespace ReserveBlockCore.P2P
                 catch (Exception ex)
                 {
                     //node is offline
-                    var nodeInfo = NodeDict[2];
-                    if (nodeInfo != null)
-                    {
-                        var node = nodeList.Where(x => x.NodeIP == nodeInfo).FirstOrDefault();
-                        if (node != null)
-                        {
-                            Program.Nodes.Remove(node);
-                        }
-                        hubConnection2 = null;
-                        NodeDict[2] = null;
-                    }
-
+                    HandleDisconnectedNode(2, hubConnection2);
                 }
 
                 try
@@ -1045,17 +1118,7 @@ namespace ReserveBlockCore.P2P
                 catch (Exception ex)
                 {
                     //node is offline
-                    var nodeInfo = NodeDict[3];
-                    if (nodeInfo != null)
-                    {
-                        var node = nodeList.Where(x => x.NodeIP == nodeInfo).FirstOrDefault();
-                        if (node != null)
-                        {
-                            Program.Nodes.Remove(node);
-                        }
-                        hubConnection3 = null;
-                        NodeDict[3] = null;
-                    }
+                    HandleDisconnectedNode(3, hubConnection3);
                 }
 
                 try
@@ -1097,17 +1160,7 @@ namespace ReserveBlockCore.P2P
                 catch (Exception ex)
                 {
                     //node is offline
-                    var nodeInfo = NodeDict[4];
-                    if (nodeInfo != null)
-                    {
-                        var node = nodeList.Where(x => x.NodeIP == nodeInfo).FirstOrDefault();
-                        if (node != null)
-                        {
-                            Program.Nodes.Remove(node);
-                        }
-                        hubConnection4 = null;
-                        NodeDict[4] = null;
-                    }
+                    HandleDisconnectedNode(4, hubConnection4);
                 }
 
                 try
@@ -1149,17 +1202,7 @@ namespace ReserveBlockCore.P2P
                 catch (Exception ex)
                 {
                     //node is offline
-                    var nodeInfo = NodeDict[5];
-                    if (nodeInfo != null)
-                    {
-                        var node = nodeList.Where(x => x.NodeIP == nodeInfo).FirstOrDefault();
-                        if (node != null)
-                        {
-                            Program.Nodes.Remove(node);
-                        }
-                        hubConnection5 = null;
-                        NodeDict[5] = null;
-                    }
+                    HandleDisconnectedNode(5, hubConnection5);
                 }
 
                 try
@@ -1201,22 +1244,41 @@ namespace ReserveBlockCore.P2P
                 catch (Exception ex)
                 {
                     //node is offline
-                    var nodeInfo = NodeDict[6];
-                    if (nodeInfo != null)
-                    {
-                        var node = nodeList.Where(x => x.NodeIP == nodeInfo).FirstOrDefault();
-                        if (node != null)
-                        {
-                            Program.Nodes.Remove(node);
-                        }
-                        hubConnection6 = null;
-                        NodeDict[6] = null;
-                    }
+                    HandleDisconnectedNode(6, hubConnection6);
                 }
 
             }
 
             return result;
+        }
+
+        #endregion
+
+        #region HandleDisconnectedNode
+        private static void HandleDisconnectedNode(int nodeNum, HubConnection? _hubConnection)
+        {
+            try
+            {
+                var nodes = Program.Nodes;
+                var nodeList = nodes.ToList();
+
+                var nodeInfo = NodeDict[nodeNum];
+                if (nodeInfo != null)
+                {
+                    var node = nodeList.Where(x => x.NodeIP == nodeInfo).FirstOrDefault(); //null error happened here meaning nodeList was null
+                    if (node != null)
+                    {
+                        Program.Nodes.Remove(node);
+                    }
+                    _hubConnection = null;
+                    NodeDict[nodeNum] = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                string errorMsg = string.Format("Error handling disconnected node: {0}. Error Message: {1}", nodeNum.ToString(), ex.Message);
+                ErrorLogUtility.LogError(errorMsg, "P2PClient.HandleDisconnectedNode()");
+            }
         }
 
         #endregion
@@ -1371,6 +1433,152 @@ namespace ReserveBlockCore.P2P
 
             }
             return (newHeightFound, height);
+        }
+
+        #endregion
+
+        #region File Upload To Beacon Beacon
+
+        public static async Task<bool> BeaconUploadRequest()
+        {
+            var result = false;
+            //send file size, beacon will reply if it is ok to send.
+            return result;
+        }
+
+        #endregion
+
+        #region File Download from Beacon - BeaconAccessRequest
+
+        public static async Task<bool> BeaconAccessRequest(string message, string beaconLocator)
+        {
+            var result = false;
+            var beaconString = beaconLocator.ToStringFromBase64();
+            var beaconDataJsonDes = JsonConvert.DeserializeObject<BeaconInfo.BeaconInfoJson>(beaconString);
+            var beaconIP = beaconDataJsonDes.IPAddress;
+            var beaconPort = beaconDataJsonDes.Port;
+
+            //We need to determine if we are already connected to a beacon. If so use that connection otherwise make a new one.
+
+            //send signature request and beacon will reply if it is ok to download. Beacon will log file names and IP allowed to Download.
+            return result;
+        }
+
+        #endregion
+
+        #region Get Beacon Status of Nodes
+        public static async Task<List<string>> GetBeacons()
+        {
+            List<string> BeaconList = new List<string>();
+
+            var peersConnected = await ArePeersConnected();
+
+            if (peersConnected.Item1 == false)
+            {
+                //Need peers
+                return BeaconList;
+            }
+            else
+            {
+                try
+                {
+                    if (hubConnection1 != null && IsConnected1)
+                    {
+                        string beaconInfo = await hubConnection1.InvokeAsync<string>("SendBeaconInfo");
+                        if(beaconInfo != "NA")
+                        {
+                            BeaconList.Add(beaconInfo);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    //node is offline
+                }
+                try
+                {
+                    if (hubConnection2 != null && IsConnected2)
+                    {
+                        string beaconInfo = await hubConnection2.InvokeAsync<string>("SendBeaconInfo");
+                        if (beaconInfo != "NA")
+                        {
+                            BeaconList.Add(beaconInfo);
+                        }
+
+                    }
+                }
+                catch (Exception ex)
+                {
+                    //node is offline
+                }
+
+                try
+                {
+                    if (hubConnection3 != null && IsConnected3)
+                    {
+                        string beaconInfo = await hubConnection3.InvokeAsync<string>("SendBeaconInfo");
+                        if (beaconInfo != "NA")
+                        {
+                            BeaconList.Add(beaconInfo);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    //node is offline
+                }
+
+                try
+                {
+                    if (hubConnection4 != null && IsConnected4)
+                    {
+                        string beaconInfo = await hubConnection4.InvokeAsync<string>("SendBeaconInfo");
+                        if (beaconInfo != "NA")
+                        {
+                            BeaconList.Add(beaconInfo);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    //node is offline
+                }
+
+                try
+                {
+                    if (hubConnection5 != null && IsConnected5)
+                    {
+                        string beaconInfo = await hubConnection5.InvokeAsync<string>("SendBeaconInfo");
+                        if (beaconInfo != "NA")
+                        {
+                            BeaconList.Add(beaconInfo);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    //node is offline
+                }
+
+                try
+                {
+                    if (hubConnection6 != null && IsConnected6)
+                    {
+                        string beaconInfo = await hubConnection6.InvokeAsync<string>("SendBeaconInfo");
+                        if (beaconInfo != "NA")
+                        {
+                            BeaconList.Add(beaconInfo);
+                        }
+                    }
+
+                }
+                catch (Exception ex)
+                {
+                    //node is offline
+                }
+
+            }
+            return BeaconList;
         }
 
         #endregion
@@ -1563,12 +1771,13 @@ namespace ReserveBlockCore.P2P
         #region Send Transactions to mempool 
         public static async void SendTXMempool(Transaction txSend)
         {
-            var peersConnected = await P2PClient.ArePeersConnected();
+            var peersConnected = await ArePeersConnected();
 
             if (peersConnected.Item1 == false)
             {
                 //Need peers
                 Console.WriteLine("Failed to broadcast Transaction. No peers are connected to you.");
+                LogUtility.Log("TX failed. No Peers: " + txSend.Hash, "P2PClient.SendTXMempool()");
             }
             else
             {
@@ -1816,6 +2025,5 @@ namespace ReserveBlockCore.P2P
 
         }
         #endregion
-
     }
 }

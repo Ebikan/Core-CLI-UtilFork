@@ -37,6 +37,7 @@ namespace ReserveBlockCore.Data
                         Hash = "", //this will be built down below. showing just to make this clear.
                         Timestamp = timeStamp,
                         Signature = "COINBASE_TX",
+                        TransactionType = TransactionType.TX,
                         Nonce = 0
                     };
 
@@ -132,17 +133,38 @@ namespace ReserveBlockCore.Data
                 Console.WriteLine("No Transactions in your mempool");
             }
         }
+        public static List<Transaction>? GetMempool()
+        {
+            var pool = GetPool();
+            if (pool.Count() != 0)
+            {
+                var txs = pool.FindAll().ToList();
+                if(txs.Count() != 0)
+                {
+                    return txs;
+                }
+            }
+            else
+            {
+                return null;
+            }
+
+            return null;
+        }
+
         public static List<Transaction> ProcessTxPool()
         {
             var collection = DbContext.DB.GetCollection<Transaction>(DbContext.RSRV_TRANSACTION_POOL);
 
             var memPoolTxList = collection.FindAll().ToList();
+            //Size the pool to 1mb
+            var sizedMempoolList = MempoolSizeUtility.SizeMempoolDown(memPoolTxList);
 
             var approvedMemPoolList = new List<Transaction>();
 
-            if(memPoolTxList.Count() > 0)
+            if(sizedMempoolList.Count() > 0)
             {
-                memPoolTxList.ForEach(tx => {
+                sizedMempoolList.ForEach(tx => {
                     var txExist = approvedMemPoolList.Exists(x => x.Hash == tx.Hash);
                     if(!txExist)
                     {

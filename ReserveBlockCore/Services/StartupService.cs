@@ -7,6 +7,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using LiteDB;
+using ReserveBlockCore.Beacon;
 using ReserveBlockCore.Data;
 using ReserveBlockCore.EllipticCurve;
 using ReserveBlockCore.Models;
@@ -25,15 +26,16 @@ namespace ReserveBlockCore.Services
             {
                 try
                 {
-                    tcpClient.Connect("127.0.0.1", Program.Port);
-                    Console.WriteLine("Application already running on port 3338. Please verify only one instance is open.");
+                    var port = Program.Port;
+                    tcpClient.Connect("127.0.0.1", port);
+                    Console.WriteLine($"Application already running on port {port}. Please verify only one instance is open.");
+                    LogUtility.Log($"CLI Already Running on port {port}. Closing new instance.", "StartupService.AnotherInstanceCheck()");
                     Thread.Sleep(2000);
                     Environment.Exit(0);
-
                 }
                 catch (Exception)
                 {
-                    Console.WriteLine("Port closed");
+                    Console.WriteLine("Application Starting...");
                 }
             }
         }
@@ -47,7 +49,6 @@ namespace ReserveBlockCore.Services
             P2PClient.NodeDict.Add(4, null);
             P2PClient.NodeDict.Add(5, null);
             P2PClient.NodeDict.Add(6, null);
-
         }
 
         internal static void ClearValidatorDups()
@@ -61,17 +62,26 @@ namespace ReserveBlockCore.Services
             DbContext.Initialize();
         }
 
+        internal static void HDWalletCheck()
+        {
+            var check = HDWallet.HDWalletData.GetHDWallet();
+            if(check != null)
+            {
+                Program.HDWallet = true;
+            }
+        }
         internal static void SetBlockchainChainRef()
         {
             //mainnet
             //BlockchainData.ChainRef = "m_Gi9RNxviAq1TmvuPZsZBzdAa8AWVJtNa7cm1dFaT4dWDbdqSNSTh";
 
             //testnet
-            BlockchainData.ChainRef = "t3_Gi9RNxviAq1TmvuPZsZBzdAa8AWVJtNa7cm1dFaT4dWDbdqSNSTh";
+            BlockchainData.ChainRef = "t6_Gi9RNxviAq1TmvuPZsZBzdAa8AWVJtNa7cm1dFaT4dWDbdqSNSTh";
+            LogUtility.Log("RBX ChainRef - " + BlockchainData.ChainRef, "Main");
 
             if (Program.IsTestNet)
             {
-                BlockchainData.ChainRef = "t_testnet";
+                BlockchainData.ChainRef = "t_testnet1";
             }
         }
 
@@ -96,6 +106,7 @@ namespace ReserveBlockCore.Services
         internal static void SetBlockHeight()
         {
             Program.BlockHeight = BlockchainData.GetHeight();
+            LogUtility.Log("RBX Height - " + Program.BlockHeight.ToString(), "Main");
         }
 
         internal static void SetLastBlock()
@@ -111,6 +122,27 @@ namespace ReserveBlockCore.Services
             //RuleService.ResetValidators();
             //RuleService.ResetFailCounts();
             //RuleService.RemoveOldValidators();
+        }
+
+        internal static void StartBeacon()
+        {
+            try
+            {
+                var port = Program.Port + 10000; //23338
+                if(Program.IsTestNet == true)
+                {
+                    port = port + 10000; //33339
+                }
+
+                BeaconServer server = new BeaconServer(GetPathUtility.GetBeaconPath(), port);
+                Thread obj_thread = new Thread(server.StartServer());
+                Console.WriteLine("Beacon Started");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
+            
         }
 
         //This is just for the initial launch of chain to help bootstrap known validators. This method will eventually be not needed.
@@ -132,6 +164,27 @@ namespace ReserveBlockCore.Services
                 };
 
                 adjudicators.Insert(adj1);
+            }
+
+            if(Program.IsTestNet == true)
+            {
+                var test_adjudicator = adjudicators.FindOne(x => x.Address == "xAZG6Q52Ap4QxiUZVsNUaSYd3ECtoAdvvj");
+                if (test_adjudicator == null)
+                {
+                    Adjudicators adjTest = new Adjudicators
+                    {
+                        Address = "xAZG6Q52Ap4QxiUZVsNUaSYd3ECtoAdvvj",
+                        IsActive = true,
+                        IsLeadAdjuidcator = true,
+                        LastChecked = DateTime.UtcNow,
+                        NodeIP = "173.254.253.106",
+                        Signature = "MEYCIQDCNDRZ7ovAH7/Ec3x0TP0i1S8OODWE4aKnxisnUnxP4QIhAI8WULPVZC8LZ+4GmQMmthN50WRZ3sswIXjIGoHMv7EE.2qwMbg8SyKNWj1zKLj8qosEMNDHXEpecL46sx8mkkE4E1V212UX6DcPTY6YSdgZLjbvjM5QBX9JDKPtu5wZh6qvj",
+                        UniqueName = "Trillium Adjudicator TestNet",
+                        WalletVersion = Program.CLIVersion
+                    };
+
+                    adjudicators.Insert(adjTest);
+                }
             }
         } 
 
@@ -183,9 +236,30 @@ namespace ReserveBlockCore.Services
         internal static void SetValidator()
         {
             var accounts = AccountData.GetAccounts();
+            if(Program.IsTestNet == true)
+            {
+                var myAccountTest = accounts.FindOne(x => x.IsValidating == true);
+                if (myAccountTest != null)
+                {
+                    Program.ValidatorAddress = myAccountTest.Address;
+                }
+            }
             var myAccount = accounts.FindOne(x => x.IsValidating == true && x.Address != Program.GenesisAddress);
             if (myAccount != null)
             {
+                Program.ValidatorAddress = myAccount.Address;
+            }
+        }
+
+        internal static async void SetConfigValidator()
+        {
+            var address = Program.ConfigValidator;
+            var uname = Program.ConfigValidatorName;
+            var accounts = AccountData.GetAccounts();
+            var myAccount = accounts.FindOne(x => x.Address == address);
+            if (myAccount != null && myAccount.IsValidating != true)
+            {
+                var valResult = await ValidatorService.StartValidating(myAccount, uname);
                 Program.ValidatorAddress = myAccount.Address;
             }
         }
@@ -288,11 +362,14 @@ namespace ReserveBlockCore.Services
                     var result = await P2PClient.GetCurrentHeight();
                     if (result.Item1 == true)
                     {
+                        LogUtility.Log("Block downloads started.", "DownloadBlocksOnStart()-if");
                         Program.BlocksDownloading = true;
                         Program.BlocksDownloading = await BlockDownloadService.GetAllBlocks(result.Item2);
                     }
+                    //This is not being reached on some devices. 
                     else
                     {
+                        LogUtility.Log("Block downloads finished.", "DownloadBlocksOnStart()-else");
                         Program.BlocksDownloading = false;
                         download = false; //exit the while.
                         Program.StopAllTimers = false;
@@ -323,6 +400,7 @@ namespace ReserveBlockCore.Services
             {
                 Program.BlocksDownloading = false;
                 Program.StopAllTimers = false;
+                Program.IsChainSynced = true;
             }
             download = false; //exit the while. 
         }
@@ -337,38 +415,10 @@ namespace ReserveBlockCore.Services
 
             if(dupBlocksList.Count != 0)
             {
+                LogUtility.Log("Duplicate Blocks Found!", "StartupService: dupBlocksList.Count != 0 / meaning dup found!");
                 //Reset blocks and all balances and redownload chain. No exception here.
-                var accounts = AccountData.GetAccounts();
-                var transactions = TransactionData.GetAll();
-                var stateTrei = StateData.GetAccountStateTrei();
-                var worldTrei = WorldTrei.GetWorldTrei();
-
-                var accountList = accounts.FindAll();
-                if(accountList.Count() > 0)
-                {
-                    foreach(var account in accountList)
-                    {
-                        account.Balance = 0.0M;
-                        accounts.Update(account);//resets balances to 0.
-                    }
-                }
-
-                transactions.DeleteAll();//delete all local transactions
-                stateTrei.DeleteAll(); //removes all state trei data
-                worldTrei.DeleteAll();  //removes the state trei
-                blockChain.DeleteAll();//remove all blocks
-                try
-                {
-                    DbContext.DB.Checkpoint();
-                    DbContext.DB_AccountStateTrei.Checkpoint();
-                    DbContext.DB_WorldStateTrei.Checkpoint();
-                    DbContext.DB_Wallet.Checkpoint();
-
-                }
-                catch (Exception ex)
-                {
-                    //error saving from db cache
-                }
+                Console.WriteLine("Duplicate Blocks Found!");
+                Program.DatabaseCorruptionDetected = true;
             }
         }
 
@@ -599,6 +649,7 @@ namespace ReserveBlockCore.Services
                     if(myAccount != null)
                     {
                         Program.ValidatorAddress = myAccount.Address;
+                        LogUtility.Log("Validator Address set: " + Program.ValidatorAddress, "StartupService:StartupPeers()");
                     }
                     else
                     {
@@ -649,9 +700,7 @@ namespace ReserveBlockCore.Services
                             }
                         }
                     }
-                    
                 }
-                
             }
             return true;
         }
@@ -671,25 +720,44 @@ namespace ReserveBlockCore.Services
             Console.Clear();
             Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop);
 
-            AnsiConsole.Write(
-                new FigletText("ReserveBlock Wallet")
+            if(Program.IsTestNet != true)
+            {
+                AnsiConsole.Write(
+                new FigletText("RBX Wallet")
                 .LeftAligned()
                 .Color(Color.Blue));
-
-            Console.WriteLine("ReserveBlock Main Menu");
+            }
+            else
+            {
+                AnsiConsole.Write(
+                new FigletText("RBX Wallet - TestNet")
+                .LeftAligned()
+                .Color(Color.Green));
+            }
+            
+            if(Program.IsTestNet != true)
+            {
+                Console.WriteLine("ReserveBlock Main Menu");
+            }
+            else
+            {
+                Console.WriteLine("ReserveBlock Main Menu **TestNet**");
+            }
             Console.WriteLine("|======================================|");
             Console.WriteLine("| 1. Genesis Block (Check)             |");
             Console.WriteLine("| 2. Create Account                    |");
+            Console.WriteLine("| 2hd. Create HD Wallet                |");
             Console.WriteLine("| 3. Restore Account                   |");
+            Console.WriteLine("| 3hd. Restore HD Wallet               |");
             Console.WriteLine("| 4. Send Coins                        |");
-            Console.WriteLine("| 5. Check Address Balance             |");
+            Console.WriteLine("| 5. Get Latest Block                  |");
             Console.WriteLine("| 6. Transaction History               |");
             Console.WriteLine("| 7. Account Info                      |");
             Console.WriteLine("| 8. Startup Masternode                |");
-            Console.WriteLine("| 9. Startup Datanode                  |");
+            Console.WriteLine("| 9. Search Block                      |");
             Console.WriteLine("| 10. Enable API (Turn On and Off)     |");
             Console.WriteLine("| 11. Stop Masternode                  |");
-            Console.WriteLine("| 12. Stop Datanode                    |");
+            Console.WriteLine("| 12. Import Smart Contract            |");
             Console.WriteLine("| 20. Generate CSV of Blockchain.      |");
             Console.WriteLine("| 21. Generate CSV of Transactions.    |");
             Console.WriteLine("| 13. Exit                             |");

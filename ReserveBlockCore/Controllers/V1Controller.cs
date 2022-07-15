@@ -1,16 +1,20 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
+using ReserveBlockCore.BIP39;
 using ReserveBlockCore.Data;
+using ReserveBlockCore.EllipticCurve;
 using ReserveBlockCore.Models;
 using ReserveBlockCore.P2P;
 using ReserveBlockCore.Services;
 using ReserveBlockCore.Utilities;
-
-// For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
+using System.Globalization;
+using System.Numerics;
 
 namespace ReserveBlockCore.Controllers
 {
+    [ActionFilterController]
     [Route("api/[controller]")]
+    [Route("api/[controller]/{somePassword?}")]
     [ApiController]
     public class V1Controller : ControllerBase
     {
@@ -18,7 +22,7 @@ namespace ReserveBlockCore.Controllers
         [HttpGet]
         public IEnumerable<string> Get()
         {
-            return new string[] { "value1", "value2" };
+            return new string[] { "RBX-Wallet", "API" };
         }
 
         // GET api/<V1>/getgenesisblock
@@ -40,6 +44,95 @@ namespace ReserveBlockCore.Controllers
 
             return output;
         }
+
+        [HttpGet("UnlockWallet/{password}")]
+        public async Task<string> UnlockWallet(string password)
+        {
+            var output = "";
+
+            if (Program.APIPassword != null)
+            {
+                if (password != null)
+                {
+                    var passCheck = Program.APIPassword.ToDecrypt(password);
+                    if (passCheck == password && passCheck != "Fail")
+                    {
+                        Program.APIUnlockTime = DateTime.UtcNow.AddMinutes(Program.WalletUnlockTime);
+                        var successResult = new[]
+                        {
+                            new { Result = "Success", Message = $"Wallet has been unlocked for {Program.WalletUnlockTime} mins."}
+                        };
+
+                        output = JsonConvert.SerializeObject(successResult);
+                    }
+                    else
+                    {
+                        var failResult = new[]
+                        {
+                            new { Result = "Fail", Message = "Incorrect Password."}
+                        };
+
+                        output = JsonConvert.SerializeObject(failResult);
+                    }
+                }
+            }
+            else
+            {
+                var failResult = new[]
+                {
+                    new { Result = "Fail", Message = "No password has been configured."}
+                };
+
+                output = JsonConvert.SerializeObject(failResult);
+            }
+
+            return output;
+        }
+
+        [HttpGet("LockWallet/{password}")]
+        public async Task<string> LockWallet(string password)
+        {
+            var output = "";
+
+            if (Program.APIPassword != null)
+            {
+                if (password != null)
+                {
+                    var passCheck = Program.APIPassword.ToDecrypt(password);
+                    if (passCheck == password && passCheck != "Fail")
+                    {
+                        Program.APIUnlockTime = DateTime.UtcNow;
+                        var successResult = new[]
+                        {
+                            new { Result = "Success", Message = $"Wallet has been locked."}
+                        };
+
+                        output = JsonConvert.SerializeObject(successResult);
+                    }
+                    else
+                    {
+                        var failResult = new[]
+                        {
+                            new { Result = "Fail", Message = "Incorrect Password."}
+                        };
+
+                        output = JsonConvert.SerializeObject(failResult);
+                    }
+                }
+            }
+            else
+            {
+                var failResult = new[]
+                {
+                    new { Result = "Fail", Message = "No password has been configured."}
+                };
+
+                output = JsonConvert.SerializeObject(failResult);
+            }
+
+            return output;
+        }
+
         [HttpGet("CheckStatus")]
         public async Task<string> CheckStatus()
         {
@@ -49,14 +142,65 @@ namespace ReserveBlockCore.Controllers
 
             return output;
         }
+
+        [HttpGet("GetHDWallet/{strength}")]
+        public async Task<string> GetHDWallet(int strength)
+        {
+            var output = "";
+            var mnemonic = HDWallet.HDWalletData.CreateHDWallet(strength, BIP39Wordlist.English);
+
+            Program.HDWallet = true;
+
+            var newHDWalletInfo = new[]
+            {
+                new { Result = mnemonic}
+            };
+
+            output = JsonConvert.SerializeObject(newHDWalletInfo);
+
+            return output;
+        }
+
+        [HttpGet("GetRestoreHDWallet/{mnemonic}")]
+        public async Task<string> GetRestoreHDWallet(string mnemonic)
+        {
+            var output = "";
+            var mnemonicRestore = HDWallet.HDWalletData.RestoreHDWallet(mnemonic);
+
+            var newHDWalletInfo = new[]
+            {
+                new { Result = mnemonicRestore}
+            };
+
+            output = JsonConvert.SerializeObject(newHDWalletInfo);
+
+            return output;
+        }
+
         [HttpGet("GetNewAddress")]
         public async Task<string> GetNewAddress()
         {
             //use Id to get specific commands
+            Account account = null; 
             var output = "Fail"; // this will only display if command not recognized.
-            var account = AccountData.CreateNewAccount();
+            if(Program.HDWallet == true)
+            {
+                account = HDWallet.HDWalletData.GenerateAddress();
+            }
+            else
+            {
+                account = AccountData.CreateNewAccount();
+            }
+            
+            var newAddressInfo = new[]
+            {
+                new { Address = account.Address, PrivateKey = account.PrivateKey}
+            };
 
-            output = account.Address + ":" + account.PrivateKey;
+            LogUtility.Log("New Address Created: " + account.Address, "V1Controller.GetNewAddress()");
+
+            output = JsonConvert.SerializeObject(newAddressInfo);
+            //output = account.Address + ":" + account.PrivateKey;
 
             return output;
         }
@@ -78,7 +222,16 @@ namespace ReserveBlockCore.Controllers
                 peerCount = "0";
             }
 
-            output = blockHeight + ":" + peerCount + ":" + Program.BlocksDownloading.ToString() + ":" + Program.IsResyncing.ToString();
+
+            var walletInfo = new[]
+            {
+                new { BlockHeight = blockHeight, PeerCount = peerCount, BlocksDownloading = Program.BlocksDownloading.ToString(), 
+                    IsResyncing = Program.IsResyncing.ToString(), IsChainSynced =  Program.IsChainSynced.ToString(), ChainCorrupted = Program.DatabaseCorruptionDetected.ToString()}
+            };
+
+            output = JsonConvert.SerializeObject(walletInfo);
+
+            //output = blockHeight + ":" + peerCount + ":" + Program.BlocksDownloading.ToString() + ":" + Program.IsResyncing.ToString() + ":" + Program.IsChainSynced.ToString();
 
             return output;
         }
@@ -297,7 +450,10 @@ namespace ReserveBlockCore.Controllers
 
             int num = Convert.ToInt32(id);
 
-            var result = await BlockRollbackUtility.RollbackBlocks(num);
+            //This needs refactor
+            //var result = await BlockRollbackUtility.RollbackBlocks(num);
+            var result = false;
+
 
             if(result == true)
             {
@@ -310,16 +466,6 @@ namespace ReserveBlockCore.Controllers
 
             return output;
         }
-
-        [HttpGet("UnlockRemoteCraft")]
-        public async Task<string> UnlockRemoteCraft()
-        {
-            Program.RemoteCraftLock = false;
-            var output = "Completed"; 
-            
-            return output;
-        }
-
 
         [HttpGet("GetAllTransactions")]
         public async Task<string> GetAllTransactions()
@@ -404,7 +550,7 @@ namespace ReserveBlockCore.Controllers
                     }
                     catch (Exception ex)
                     {
-
+                        ErrorLogUtility.LogError(ex.Message, "V1Controller.StartValidating - result: " + result);
                     }
                     output = true;
                 }
@@ -413,12 +559,127 @@ namespace ReserveBlockCore.Controllers
             return result;
         }
 
+        [HttpGet("ChangeValidatorName/{uname}")]
+        public async Task<string> ChangeValidatorName(string uname)
+        {
+            string output = "";
+            
+            if(Program.ValidatorAddress != "")
+            {
+                var validatorTable = Validators.Validator.GetAll();
+                var validator = validatorTable.FindOne(x => x.Address == Program.ValidatorAddress);
+                validator.UniqueName = uname;
+                validatorTable.Update(validator);
+
+                output = "Validator Unique Name Updated";
+            }
+            return output;
+        }
+
+        [HttpGet("CreateSignature/{message}/{address}")]
+        public async Task<string> CreateSignature(string message, string address)
+        {
+            string output;
+
+            var account = AccountData.GetSingleAccount(address);
+            if(account != null)
+            {
+                BigInteger b1 = BigInteger.Parse(account.PrivateKey, NumberStyles.AllowHexSpecifier);//converts hex private key into big int.
+                PrivateKey privateKey = new PrivateKey("secp256k1", b1);
+
+                var signature = SignatureService.CreateSignature(message, privateKey, account.PublicKey);
+                output = signature;
+            }
+            else
+            {
+                output = "ERROR - Account not associated with wallet.";
+            }
+            
+            return output;
+        }
+
+        [HttpGet("ValidateSignature/{message}/{address}/{**sigScript}")]
+        public async Task<bool> ValidateSignature(string message, string address, string sigScript)
+        {
+            bool output;
+
+            var result = SignatureService.VerifySignature(address, message, sigScript);
+            output = result;
+
+            return output;
+        }
+
+        [HttpGet("GetMempool")]
+        public async Task<string> GetMempool()
+        {
+            string output = "";
+            var txs = TransactionData.GetMempool();
+            output = JsonConvert.SerializeObject(txs);
+
+            return output;
+        }
+
+        [HttpGet("GetMemBlockCluster")]
+        public async Task<string> GetMemBlockCluster()
+        {
+            string output = "";
+            var blocks = Program.MemBlocks;
+            output = JsonConvert.SerializeObject(blocks);
+
+            return output;
+        }
+
+        [HttpGet("GetTaskAnswersList")]
+        public async Task<string> GetTaskAnswersList()
+        {
+            string output = "";
+            var taskAnswerList = P2PAdjServer.TaskAnswerList.Select(x => new {
+                Address = x.Address,
+                Answer = x.Answer,
+                BlockHeight = x.Block != null ? x.Block.Height : 0,
+                SubmitTime = x.SubmitTime
+                
+            });
+            output = JsonConvert.SerializeObject(taskAnswerList);
+
+            return output;
+        }
+
+        [HttpGet("GetMasternodesSent")]
+        public async Task<string> GetMasternodesSent()
+        {
+            string output = "";
+            var currentTime = DateTime.Now.AddMinutes(-15);
+            var fortisPool = P2PAdjServer.FortisPool.Where(x => x.LastAnswerSendDate >= currentTime);
+            output = JsonConvert.SerializeObject(fortisPool);
+
+            return output;
+        }
+
         [HttpGet("GetMasternodes")]
         public async Task<string> GetMasternodes()
         {
             string output = "";
             var validators = P2PAdjServer.FortisPool.ToList();
+
             output = JsonConvert.SerializeObject(validators);
+
+            return output;
+        }
+
+        [HttpGet("GetValidatorPoolInfo")]
+        public async Task<string> GetValidatorPoolInfo()
+        {
+            string output = "";
+            var isConnected = P2PClient.IsAdjConnected1;
+            DateTime? connectDate = P2PClient.AdjudicatorConnectDate != null ? P2PClient.AdjudicatorConnectDate.Value : null;
+
+            var connectedInfo = new[]
+            {
+                new { ValidatorConnectedToPool = isConnected, PoolConnectDate = connectDate }
+            };
+
+            output = JsonConvert.SerializeObject(connectedInfo);
 
             return output;
         }
@@ -435,6 +696,7 @@ namespace ReserveBlockCore.Controllers
             return output;
 
         }
+
         [HttpGet("GetDebugInfo")]
         public async Task<string> GetDebugInfo()
         {
@@ -453,12 +715,54 @@ namespace ReserveBlockCore.Controllers
             return output;
         }
 
+        [HttpGet("ReadRBXLog")]
+        public async Task<string> ReadRBXLog()
+        {
+            string output = "";
+
+            output = await LogUtility.ReadLog();
+
+            return output;
+        }
+
+        [HttpGet("ClearRBXLog")]
+        public async Task<string> ClearRBXLog()
+        {
+            string output = "";
+
+            await LogUtility.ClearLog();
+
+            output = "Log Cleared";
+            return output;
+        }
+
+        [HttpGet("ReadValLog")]
+        public async Task<string> ReadValLog()
+        {
+            string output = "";
+
+            output = await ValidatorLogUtility.ReadLog();
+
+            return output;
+        }
+
+        [HttpGet("ClearValLog")]
+        public async Task<string> ClearValLog()
+        {
+            string output = "";
+
+            await ValidatorLogUtility.ClearLog();
+
+            output = "Log Cleared";
+            return output;
+        }
+
         [HttpGet("SendExit")]
         public async Task SendExit()
         {
             //use Id to get specific commands
             var output = "Starting Stop"; // this will only display if command not recognized.
-
+            LogUtility.Log("Send exit has been called. Closing Wallet.", "V1Controller.SendExit()");
             Program.StopAllTimers = true;
             Thread.Sleep(1000);
             Environment.Exit(0);

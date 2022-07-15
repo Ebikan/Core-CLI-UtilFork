@@ -1,14 +1,19 @@
-﻿using LiteDB;
+﻿global using ReserveBlockCore.Extensions;
+
+using LiteDB;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting;
 using Newtonsoft.Json;
+using ReserveBlockCore.Beacon;
 using ReserveBlockCore.Commands;
 using ReserveBlockCore.Data;
 using ReserveBlockCore.Models;
 using ReserveBlockCore.P2P;
 using ReserveBlockCore.Services;
+using ReserveBlockCore.Trillium;
 using ReserveBlockCore.Utilities;
+using ReserveBlockCore.Config;
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Reflection;
@@ -17,10 +22,8 @@ namespace ReserveBlockCore
 {
     class Program
     {
-
         #region Constants
 
-        private static Timer? blockTimer;//for creating a new block at max every 30 seconds
         private static Timer? heightTimer; //timer for getting height from other nodes
         private static Timer? PeerCheckTimer;//checks currents peers and old peers and will request others to try. 
         private static Timer? ValidatorListTimer;//checks currents peers and old peers and will request others to try. 
@@ -34,6 +37,7 @@ namespace ReserveBlockCore
         public static List<Validators> InactiveValidators = new List<Validators>();
         public static List<Validators> MasternodePool = new List<Validators>();
         public static long BlockHeight = -1;
+        public static bool StopConsoleOutput = false;
         public static Block LastBlock = new Block();
         public static Adjudicators? LeadAdjudicator = null;
         public static Guid AdjudicatorKey = Adjudicators.AdjudicatorData.GetAdjudicatorKey();
@@ -51,19 +55,38 @@ namespace ReserveBlockCore
         public static bool DatabaseCorruptionDetected = false;
         public static bool BlockCrafting = false;
         public static bool RemoteCraftLock = false;
+        public static bool IsChainSynced = false;
+        public static bool OptionalLogging = false;
         public static DateTime? RemoteCraftLockTime = null;
         public static string ValidatorAddress = "";
         public static bool IsTestNet = false;
+        public static int NFTTimeout = 0;
         public static int Port = 3338;
         public static int APIPort = 7292;
+        public static string? WalletPassword = null;
+        public static bool AlwaysRequireWalletPassword = false;
+        public static string? APIPassword = null;
+        public static bool AlwaysRequireAPIPassword = false;
+        public static DateTime? CLIWalletUnlockTime = null;
+        public static DateTime? APIUnlockTime = null;
+        public static int WalletUnlockTime = 0;
+        public static string? APICallURL = null;
+        public static bool APICallURLLogging = false;
+        public static bool ChainCheckPoint = false;
+        public static int ChainCheckPointInterval = 0;
+        public static int ChainCheckPointRetain = 0;
+        public static string ChainCheckpointLocation = "";
+        public static string ConfigValidator = "";
+        public static string ConfigValidatorName = "";
         public static string GenesisAddress = "RBdwbhyqwJCTnoNe1n7vTXPJqi5HKc6NTH";
         public static byte AddressPrefix = 0x3C; //address prefix 'R'
         public static bool PrintConsoleErrors = false;
         public static Process proc = new Process();
         public static int MajorVer = 1;
-        public static int MinorVer = 19;
+        public static int MinorVer = 22;
         public static int BuildVer = 0;
         public static string CLIVersion = "";
+        public static bool HDWallet = false;
 
         private readonly IHubContext<P2PAdjServer> _hubContext;
 
@@ -73,17 +96,49 @@ namespace ReserveBlockCore
         }
 
         #endregion
+
+        #region Main
         static async Task Main(string[] args)
         {
             DateTime originDate = new DateTime(2022, 1, 1);
             DateTime currentDate = DateTime.Now;
 
+            var argList = args.ToList();
+            if (args.Length != 0)
+            {
+                argList.ForEach(x => {
+                    var argC = x.ToLower();
+                    if (argC == "testnet")
+                    {
+                        //Launch testnet
+                        IsTestNet = true;
+                    }
+                });
+            }
+
+            Config.Config.EstablishConfigFile();
+            var config = Config.Config.ReadConfigFile();
+            Config.Config.ProcessConfig(config);
+
             var dateDiff = (int)Math.Round((currentDate - originDate).TotalDays);
             BuildVer = dateDiff;
 
             CLIVersion = MajorVer.ToString() + "." + MinorVer.ToString() + "." + BuildVer.ToString() + "-pre";
+            LogUtility.Log("", "Main", true);
+            var logCLIVer = CLIVersion.ToString();
 
-            var argList = args.ToList();
+            LogUtility.Log($"RBX Wallet - {logCLIVer}", "Main");
+
+            NFTLogUtility.Log("", "Main", true);
+            NFTLogUtility.Log($"RBX NFT ver. - {logCLIVer}", "Main");
+
+            StartupService.AnotherInstanceCheck();
+
+            StartupService.StartupDatabase();// initializes databases
+
+            StartupService.HDWalletCheck();// checks for HD wallet
+
+            //To update this go to project -> right click properties -> go To debug -> general -> open debug launch profiles
             if (args.Length != 0)
             {
                 argList.ForEach(x => {
@@ -92,7 +147,7 @@ namespace ReserveBlockCore
                     {
                         Startup.APIEnabled = true; //api disabled by default
                     }
-                    if(argC == "hidecli")
+                    if (argC == "hidecli")
                     {
                         ProcessStartInfo start = new ProcessStartInfo();
                         start.FileName = Directory.GetCurrentDirectory() + @"\RBXCore\ReserveBlockCore.exe";
@@ -109,26 +164,42 @@ namespace ReserveBlockCore
                     {
                         //launch gui
                     }
-                    if (argC == "testnet")
-                    {
-                        //Launch testnet
-                        IsTestNet = true;
-                        GenesisAddress = "xAfPR4w2cBsvmB7Ju5mToBLtJYuv1AZSyo";
-                        Port = 13338;
-                        APIPort = 17292;
-                        AddressPrefix = 0x89; //address prefix 'x'
-                    }
                     if (argC == "testurl")
                     {
                         //Launch testnet
                         TestURL = true;
                     }
+                    if (argC.Contains("privkey"))
+                    {
+                        try
+                        {
+                            var keySplit = argC.Split(new char[] { '=' });
+                            var privateKey = keySplit[1];
+                            var account = AccountData.RestoreAccount(privateKey);
+                            if (account != null)
+                            {
+                                Console.WriteLine("Account Loaded: " + account.Address);
+                            }
+
+                        }
+                        catch (Exception ex)
+                        {
+                            //bad key
+                        }
+                    }
                 });
             }
 
-            StartupService.AnotherInstanceCheck();
+            //THis is for adjudicator start. This might need to be removed.
+            P2PAdjServer.CurrentTaskQuestion = await TaskQuestionUtility.CreateTaskQuestion("rndNum");
 
-            StartupService.StartupDatabase();// initializes databases
+            //Temporary for TestNet------------------------------------
+            SeedNodeService.SeedNodes();
+            var nodeIp = await SeedNodeService.PingSeedNode();
+            await SeedNodeService.GetSeedNodePeers(nodeIp);
+            //Temporary for TestNet------------------------------------
+
+
             StartupService.SetBlockchainChainRef(); // sets blockchain reference id
             StartupService.CheckBlockRefVerToDb();
 
@@ -144,26 +215,14 @@ namespace ReserveBlockCore
             StartupService.RunRules(); //rules for cleaning up wallet data.
             StartupService.ClearValidatorDups();
 
-            if (IsTestNet == true)
-            {
-                
-            }
-            else
-            {
-                
-                StartupService.SetBootstrapAdjudicator(); //sets initial validators from bootstrap list.
-            }
-
+            StartupService.SetBootstrapAdjudicator(); //sets initial validators from bootstrap list.
             
-
             PeersConnecting = true;
             BlocksDownloading = true;
             StopAllTimers = true;
 
             //blockTimer = new Timer(blockBuilder_Elapsed); // 1 sec = 1000, 60 sec = 60000
             //blockTimer.Change(60000, 10000); //waits 1 minute, then runs every 10 seconds for new blocks
-
-            
 
             heightTimer = new Timer(blockHeightCheck_Elapsed); // 1 sec = 1000, 60 sec = 60000
             heightTimer.Change(60000, 30000); //waits 1 minute, then runs every 30 seconds for new blocks
@@ -179,8 +238,6 @@ namespace ReserveBlockCore
 
             //add method to remove stale state trei records and stale validator records too
 
-            //To update this go to project -> right click properties -> go To debug -> general -> open debug launch profiles
-            
 
             string url = TestURL == false ? "http://*:" + APIPort : "https://*:7777"; //local API to connect to wallet. This can be changed, but be cautious. 
             string url2 = "http://*:" + Port; //this is port for signalr connect and all p2p functions
@@ -188,6 +245,7 @@ namespace ReserveBlockCore
             
             var commandLoopTask = Task.Run(() => CommandLoop(url));
             var commandLoopTask2 = Task.Run(() => CommandLoop2(url2));
+            var commandLoopTask3 = Task.Run(() => CommandLoop3());
 
             //for web API using Kestrel
             var builder = Host.CreateDefaultBuilder(args)
@@ -207,13 +265,31 @@ namespace ReserveBlockCore
                     .UseStartup<StartupP2P>()
                     .UseUrls(url2)
                     .ConfigureLogging(loggingBuilder => loggingBuilder.ClearProviders());
+                    webBuilder.ConfigureKestrel(options => { 
+                        
+                        
+                    });
                 });
 
             builder.RunConsoleAsync();
             builder2.RunConsoleAsync();
+            
+
+            
+
+            LogUtility.Log("Wallet Starting...", "Program:Before CheckLastBlock()");
 
             StartupService.CheckLastBlock();
-            StartupService.CheckForDuplicateBlocks();//Commenting this out as duplicate blocks should not happen.
+            StartupService.CheckForDuplicateBlocks();
+
+            if (DatabaseCorruptionDetected == true)
+            {
+                while (true)
+                {
+                    Console.WriteLine("Please correct database corruption before continuing.");
+                    var read = Console.ReadLine();
+                }
+            }
 
             try
             {
@@ -230,17 +306,32 @@ namespace ReserveBlockCore
             await StartupService.DownloadBlocksOnStart(); //download blocks from peers on start.
 
             await StartupService.ConnectoToAdjudicator();
-            
+
+
+            if (ConfigValidator != "")
+            {
+                StartupService.SetConfigValidator();
+            }
 
             StartupService.StartupMemBlocks();
 
             Thread.Sleep(3000);
 
-            Task.WaitAll(commandLoopTask, commandLoopTask2);
+            var tasks = new Task[] {
+                commandLoopTask, //CLI console
+                commandLoopTask2, //awaiting parameters
+                commandLoopTask3//Beacon client/server
+            };
+
+            Task.WaitAll(tasks);
+
+            LogUtility.Log("Wallet Started and Running...", "Program:Before Task.WaitAll(commandLoopTask, commandLoopTask2)");
 
             //await Task.WhenAny(builder2.RunConsoleAsync(), commandLoopTask2);
             //await Task.WhenAny(builder.RunConsoleAsync(), commandLoopTask);
         }
+
+        #endregion
 
         #region Command Loops
         private static void CommandLoop(string url)
@@ -252,49 +343,101 @@ namespace ReserveBlockCore
             while (true)
             {
                 var command = Console.ReadLine();
-
-                if (command != "" || command != null)
+                if(command == "/help" || 
+                    command == "/menu" || 
+                    command == "/printvars" || 
+                    command == "/clear" || 
+                    command == "/trillium")
                 {
-                    var commandResult = BaseCommand.ProcessCommand(command);
-
-                    if (commandResult == "_EXIT")
+                    RunCommand(command);
+                }
+                else if(WalletPassword != null)
+                {
+                    var now = DateTime.UtcNow;
+                    if(AlwaysRequireWalletPassword == true)
                     {
-                        StopAllTimers = true;
-                        Console.WriteLine("Closing and Exiting Wallet Application.");
-                        Environment.Exit(0);
+                        Console.WriteLine("Please enter your wallet password");
+                        var walletPass = Console.ReadLine();
+                        var passCheck = WalletPassword.ToDecrypt(walletPass);
+                        if (passCheck == walletPass && passCheck != "Fail")
+                        {
+                            //CLIWalletUnlockTime = DateTime.UtcNow.AddMinutes(WalletUnlockTime);
+                            RunCommand(command);
+                        }
+                        else
+                        {
+                            Console.WriteLine("Incorrect password was entered.");
+                        }
+                         
                     }
-
-                    Console.WriteLine(commandResult);
+                    else if(now > CLIWalletUnlockTime && AlwaysRequireWalletPassword == false)
+                    {
+                        Console.WriteLine("Please enter your wallet password");
+                        var walletPass = Console.ReadLine();
+                        var passCheck = WalletPassword.ToDecrypt(walletPass);
+                        if (passCheck == walletPass && passCheck != "Fail")
+                        {
+                            CLIWalletUnlockTime = DateTime.UtcNow.AddMinutes(WalletUnlockTime);
+                            RunCommand(command);
+                        }
+                        else
+                        {
+                            Console.WriteLine("Incorrect password was entered.");
+                        }
+                    }
+                    else
+                    {
+                        RunCommand(command);
+                    }
                 }
                 else
                 {
-                    Console.WriteLine("Please enter a command...");
+                    RunCommand(command);
                 }
 
             }
             
         }
+
+        private static void RunCommand(string? command)
+        {
+            if (command != "" || command != null)
+            {
+                string commandResult = "";
+                if (command.Contains(","))
+                {
+                    var splitCommand = command.Split(',');
+                    commandResult = BaseCommand.ProcessCommand(splitCommand[0], splitCommand[1]);
+                }
+                else
+                {
+                    commandResult = BaseCommand.ProcessCommand(command);
+                }
+
+
+                if (commandResult == "_EXIT")
+                {
+                    StopAllTimers = true;
+                    Console.WriteLine("Closing and Exiting Wallet Application.");
+                    Thread.Sleep(2000);
+                    Environment.Exit(0);
+                }
+
+                Console.WriteLine(commandResult);
+            }
+            else
+            {
+                Console.WriteLine("Please enter a command...");
+            }
+        }
         private static void CommandLoop2(string url)
         {
-            Console.ReadKey();
+            //Console.ReadKey();
         }
 
-        #endregion
-
-        private void AdjudicateProcess()
+        private static void CommandLoop3()
         {
-            Console.WriteLine("test");
-        }
-
-        #region Block Building
-        private static async void blockBuilder_Elapsed(object sender)
-        {
-            //await _hubContext.Clients.All.SendAsync("GetAdjMessage", "Con", "Hey man");
-            //await ClientCallService._hubContext.Clients.All.SendAsync("GetAdjMessage", "status", "Hey man");
-            if (StopAllTimers == false)
-            {
-                
-            }
+            StartupService.StartBeacon();
         }
 
         #endregion
@@ -377,6 +520,7 @@ namespace ReserveBlockCore
                     if (peersConnected.Item1 != true)
                     {
                         Console.WriteLine("You have lost connection to all peers. Attempting to reconnect...");
+                        LogUtility.Log("Connection to Peers Lost", "peerCheckTimer_Elapsed()");
                         await StartupService.StartupPeers();
                         //potentially no connected nodes.
                     }
@@ -413,6 +557,7 @@ namespace ReserveBlockCore
                 if (peersConnected.Item1 != true)
                 {
                     Console.WriteLine("You have lost connection to all peers. Attempting to reconnect...");
+                    LogUtility.Log("Connection to Peers Lost", "validatorListCheckTimer_Elapsed()");
                     await StartupService.StartupPeers();
                     //potentially no connected nodes.
                 }
@@ -425,6 +570,7 @@ namespace ReserveBlockCore
                         if (connection != true)
                         {
                             Console.WriteLine("You have lost connection to the adjudicator. Attempting to reconnect...");
+                            LogUtility.Log("Connection to Adj Lost", "validatorListCheckTimer_Elapsed()");
                             await StartupService.ConnectoToAdjudicator();
                         }
                     }

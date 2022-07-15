@@ -1,4 +1,5 @@
-﻿using ReserveBlockCore.Data;
+﻿using Newtonsoft.Json;
+using ReserveBlockCore.Data;
 using ReserveBlockCore.EllipticCurve;
 using ReserveBlockCore.Models;
 using ReserveBlockCore.P2P;
@@ -93,7 +94,7 @@ namespace ReserveBlockCore.Services
                 StartupService.MainMenu();
             }
         }
-        public static string SendTXOut(string FromAddress, string ToAddress, decimal Amount)
+        public static string SendTXOut(string FromAddress, string ToAddress, decimal Amount, TransactionType tranType = TransactionType.TX)
         {
             string output = "Bad TX Format... Please Try Again";
             var account = AccountData.GetSingleAccount(FromAddress);
@@ -112,6 +113,7 @@ namespace ReserveBlockCore.Services
                 Amount = Amount + 0.0M,
                 Fee = 0, 
                 Nonce = AccountStateTrei.GetNextNonce(FromAddress), 
+                TransactionType = tranType,
             };
 
             //Calculate fee for tx.
@@ -142,6 +144,7 @@ namespace ReserveBlockCore.Services
 
             nTx.Signature = signature; //sigScript  = signature + '.' (this is a split char) + pubKey in Base58 format
 
+
             try
             {
                 var result = VerifyTX(nTx, account);
@@ -166,6 +169,14 @@ namespace ReserveBlockCore.Services
         {
             bool txResult = false;
 
+            var txJsonSize = JsonConvert.SerializeObject(txRequest);
+            var size = txJsonSize.Length;
+
+            if (size > (1024 * 3))
+            {
+                return txResult;
+            }
+
             var newTxn = new Transaction()
             {
                 Timestamp = txRequest.Timestamp,
@@ -174,6 +185,7 @@ namespace ReserveBlockCore.Services
                 Amount = txRequest.Amount,
                 Fee = txRequest.Fee,
                 Nonce = txRequest.Nonce,
+                Data = txRequest.Data,
             };
 
             newTxn.Build();
@@ -201,20 +213,10 @@ namespace ReserveBlockCore.Services
                 return txResult;
             }
 
-            if(account.IsValidating == true && (account.Balance - (newTxn.Fee + newTxn.Amount) < 1000))
+            
+
+            if (account.IsValidating == true && (account.Balance - (newTxn.Fee + newTxn.Amount) < 1000))
             {
-                //Console.WriteLine("This transaction will deactivate your masternode. Are you sure you want to deactivate this address as a validator? (Type 'y' for yes and 'n' for no.)");
-                //var confirmChoice = Console.ReadLine();
-                //if (confirmChoice == null)
-                //{
-                //    return false;
-                //}
-                //else if (confirmChoice.ToLower() == "n")
-                //{
-                //    return false;
-                //}
-                //else
-                //{
                 var validator = Validators.Validator.GetAll().FindOne(x => x.Address.ToLower() == newTxn.FromAddress.ToLower());
                 ValidatorService.StopValidating(validator);
                 TransactionData.AddToPool(txRequest);

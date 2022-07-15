@@ -1,6 +1,8 @@
 ﻿using LiteDB;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using ReserveBlockCore.Models;
+using ReserveBlockCore.Models.SmartContracts;
 using ReserveBlockCore.Utilities;
 
 namespace ReserveBlockCore.Data
@@ -55,8 +57,6 @@ namespace ReserveBlockCore.Data
             var txList = block.Transactions.ToList();
             var accStTrei = GetAccountStateTrei();
 
-            
-
             txList.ForEach(x => {
                 if (block.Height == 0)
                 {
@@ -89,27 +89,121 @@ namespace ReserveBlockCore.Data
                     
                 }
 
-                var to = GetSpecificAccountStateTrei(x.ToAddress);
-
-                if(to == null)
+                if(x.ToAddress != "Adnr_Base" && x.ToAddress != "DecShop_Base")
                 {
-                    var acctStateTreiTo = new AccountStateTrei
+                    var to = GetSpecificAccountStateTrei(x.ToAddress);
+
+                    if (to == null)
                     {
-                        Key = x.ToAddress,
-                        Nonce = 0, 
-                        Balance = x.Amount, 
-                        StateRoot = block.StateRoot
-                    };
+                        var acctStateTreiTo = new AccountStateTrei
+                        {
+                            Key = x.ToAddress,
+                            Nonce = 0,
+                            Balance = x.Amount,
+                            StateRoot = block.StateRoot
+                        };
 
-                    accStTrei.Insert(acctStateTreiTo);
+                        accStTrei.Insert(acctStateTreiTo);
+                    }
+                    else
+                    {
+                        to.Balance += x.Amount;
+                        to.StateRoot = block.StateRoot;
+
+                        accStTrei.Update(to);
+                    }
                 }
-                else
-                {
-                    to.Balance += x.Amount;
-                    to.StateRoot = block.StateRoot;
+                
 
-                    accStTrei.Update(to);
-                }    
+                if (x.TransactionType != TransactionType.TX)
+                {
+                    if (x.TransactionType == TransactionType.NFT_TX || x.TransactionType == TransactionType.NFT_MINT
+                        || x.TransactionType == TransactionType.NFT_BURN)
+                    {
+                        var scDataArray = JsonConvert.DeserializeObject<JArray>(x.Data);
+                        var scData = scDataArray[0];
+                        var function = (string?)scData["Function"];
+                        var scUID = (string?)scData["ContractUID"];
+
+                        if (function != "")
+                        {
+                            switch (function)
+                            {
+                                case "Mint()":
+                                    AddNewlyMintedContract(x);
+                                    break;
+                                case "Transfer()":
+                                    TransferSmartContract(x);
+                                    break;
+                                case "Burn()":
+                                    BurnSmartContract(x);
+                                    break;
+                                case "Evolve()":
+                                    EvolveSC(x);
+                                    break;
+                                case "Devolve()":
+                                    DevolveSC(x);
+                                    break;
+                                case "ChangeEvolveStateSpecific()":
+                                    EvolveDevolveSpecific(x);
+                                    break;
+                                default:
+                                    break;
+                            }
+                        }
+
+                    }
+
+                    if(x.TransactionType == TransactionType.ADNR)
+                    {
+                        var txData = x.Data;
+                        if (txData != null)
+                        {
+                            var jobj = JObject.Parse(txData);
+                            var function = (string)jobj["Function"];
+                            if (function != "")
+                            {
+                                switch (function)
+                                {
+                                    case "AdnrCreate()":
+                                        AddNewAdnr(x);
+                                        break;
+                                    case "AdnrTransfer()":
+                                        //AddNewAdnr(x);
+                                        break;
+                                    case "AdnrDelete()":
+                                        //AddNewAdnr(x);
+                                        break;
+                                    default:
+                                        break;
+                                }
+                            }
+                        }
+                    }
+
+                    if(x.TransactionType == TransactionType.DSTR)
+                    {
+                        var txData = x.Data;
+                        if (txData != null)
+                        {
+                            var jobj = JObject.Parse(txData);
+                            var function = (string)jobj["Function"];
+                            if (function != "")
+                            {
+                                switch (function)
+                                {
+                                    case "DecShopCreate()":
+                                        //AddNewDecShop(x);
+                                        break;
+                                    case "DecShopDelete()":
+                                        break;
+                                    default:
+                                        break;
+                                }
+                            }
+                        }
+                    }
+                }
 
             });
 
@@ -137,6 +231,162 @@ namespace ReserveBlockCore.Data
                 return account;
             }
         }
-        
+
+        public static SmartContractStateTrei GetSpecificSmartContractStateTrei(string scUID)
+        {
+            var scTrei = DbContext.DB_SmartContractStateTrei.GetCollection<SmartContractStateTrei>(DbContext.RSRV_SCSTATE_TREI);
+            var account = scTrei.FindOne(x => x.SmartContractUID == scUID);
+            if (account == null)
+            {
+                return null;
+            }
+            else
+            {
+                return account;
+            }
+        }
+
+        private static void AddNewAdnr(Transaction tx)
+        {
+            try
+            {
+                var jobj = JObject.Parse(tx.Data);
+                var address = (string)jobj["Address"];
+                var name = (string)jobj["Name"];
+                Adnr adnr = new Adnr();
+
+                adnr.Address = address;
+                adnr.Signature = (string)jobj["Signature"];
+                adnr.Timestamp = (long)jobj["Timestamp"];
+                adnr.Name = name + ".rbx";
+                adnr.TxHash = tx.Hash;
+                adnr.Hash = (string)jobj["Hash"];
+
+                Adnr.SaveAdnr(adnr);
+                
+            }
+            catch(Exception ex)
+            {
+                ErrorLogUtility.LogError("Failed to deserialized TX Data for ADNR", "TransactionValidatorService.VerifyTx()");
+            }
+        }
+
+        private static void AddNewlyMintedContract(Transaction tx)
+        {
+            SmartContractStateTrei scST = new SmartContractStateTrei();
+            var scDataArray = JsonConvert.DeserializeObject<JArray>(tx.Data);
+            var scData = scDataArray[0];
+            if (scData != null)
+            {
+                var function = (string?)scData["Function"];
+                var data = (string?)scData["Data"];
+                var scUID = (string?)scData["ContractUID"];
+
+                scST.ContractData = data;
+                scST.MinterAddress = tx.FromAddress;
+                scST.OwnerAddress = tx.FromAddress;
+                scST.SmartContractUID = scUID;
+                scST.Nonce = 0;
+
+                //Save to state trei
+                SmartContractStateTrei.SaveSmartContract(scST);
+                //SmartContractMain.SmartContractData.SetSmartContractIsPublished(scUID);
+            }
+
+        }
+        private static void TransferSmartContract(Transaction tx)
+        {
+            SmartContractStateTrei scST = new SmartContractStateTrei();
+            var scDataArray = JsonConvert.DeserializeObject<JArray>(tx.Data);
+            var scData = scDataArray[0];
+            var function = (string?)scData["Function"];
+            var data = (string?)scData["Data"];
+            var scUID = (string?)scData["ContractUID"];
+
+            var scStateTreiRec = SmartContractStateTrei.GetSmartContractState(scUID);
+            if(scStateTreiRec != null)
+            {
+                scStateTreiRec.OwnerAddress = tx.ToAddress;
+                scStateTreiRec.Nonce += 1;
+                scStateTreiRec.ContractData = data;
+
+                SmartContractStateTrei.UpdateSmartContract(scStateTreiRec);
+            }
+
+        }
+        private static void BurnSmartContract(Transaction tx)
+        {
+            SmartContractStateTrei scST = new SmartContractStateTrei();
+            var scDataArray = JsonConvert.DeserializeObject<JArray>(tx.Data);
+            var scData = scDataArray[0];
+            var function = (string?)scData["Function"];
+            var data = (string?)scData["Data"];
+            var scUID = (string?)scData["ContractUID"];
+
+            var scStateTreiRec = SmartContractStateTrei.GetSmartContractState(scUID);
+            if (scStateTreiRec != null)
+            {
+                SmartContractStateTrei.DeleteSmartContract(scStateTreiRec);
+            }
+
+        }
+
+        private static void EvolveSC(Transaction tx)
+        {
+            SmartContractStateTrei scST = new SmartContractStateTrei();
+            var scDataArray = JsonConvert.DeserializeObject<JArray>(tx.Data);
+            var scData = scDataArray[0];
+
+            var data = (string?)scData["Data"];
+            var scUID = (string?)scData["ContractUID"];
+
+            var scStateTreiRec = SmartContractStateTrei.GetSmartContractState(scUID);
+            if (scStateTreiRec != null)
+            {
+                scStateTreiRec.Nonce += 1;
+                scStateTreiRec.ContractData = data;
+
+                SmartContractStateTrei.UpdateSmartContract(scStateTreiRec);
+            }
+        }
+
+        private static void DevolveSC(Transaction tx)
+        {
+            SmartContractStateTrei scST = new SmartContractStateTrei();
+            var scDataArray = JsonConvert.DeserializeObject<JArray>(tx.Data);
+            var scData = scDataArray[0];
+
+            var data = (string?)scData["Data"];
+            var scUID = (string?)scData["ContractUID"];
+
+            var scStateTreiRec = SmartContractStateTrei.GetSmartContractState(scUID);
+            if (scStateTreiRec != null)
+            {
+                scStateTreiRec.Nonce += 1;
+                scStateTreiRec.ContractData = data;
+
+                SmartContractStateTrei.UpdateSmartContract(scStateTreiRec);
+            }
+        }
+
+        private static void EvolveDevolveSpecific(Transaction tx)
+        {
+            SmartContractStateTrei scST = new SmartContractStateTrei();
+            var scDataArray = JsonConvert.DeserializeObject<JArray>(tx.Data);
+            var scData = scDataArray[0];
+
+            var data = (string?)scData["Data"];
+            var scUID = (string?)scData["ContractUID"];
+
+            var scStateTreiRec = SmartContractStateTrei.GetSmartContractState(scUID);
+            if (scStateTreiRec != null)
+            {
+                scStateTreiRec.Nonce += 1;
+                scStateTreiRec.ContractData = data;
+
+                SmartContractStateTrei.UpdateSmartContract(scStateTreiRec);
+            }
+        }
+
     }
 }

@@ -32,7 +32,7 @@ namespace ReserveBlockCore.Nodes
                     if(message == "taskResult")
                     {
                         await BlockQueueService.ProcessBlockQueue();
-
+                        P2PClient.LastTaskResultTime = DateTime.Now;
                         var nextBlock = JsonConvert.DeserializeObject<Block>(data);
                         var nextHeight = Program.BlockHeight + 1;
                         var currentHeight = nextBlock.Height;
@@ -61,7 +61,10 @@ namespace ReserveBlockCore.Nodes
 
                                 if (broadcast == true)
                                 {
-                                    Console.WriteLine("Block was added from: " + nextBlock.Validator);
+                                    //Process block queue here
+                                    P2PClient.LastTaskBlockHeight = nextBlock.Height;
+                                    var text = ($"Block ({nextBlock.Height}) was added from: {nextBlock.Validator} ");
+                                    ConsoleWriterService.Output(text);
                                 }
                             }
                             if (nextHeight < currentHeight)
@@ -175,6 +178,11 @@ namespace ReserveBlockCore.Nodes
             {
                 taskAnswer.Block = block;
                 await P2PClient.SendTaskAnswer(taskAnswer);
+            }
+            else
+            {
+                ValidatorLogUtility.Log("Failed to add block. Block was null", "ValidatorProcessor.RandomNumberTask()");
+                P2PClient.LastTaskError = true;
             }
 
         }
