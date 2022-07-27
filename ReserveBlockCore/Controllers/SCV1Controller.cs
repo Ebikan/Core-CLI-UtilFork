@@ -69,6 +69,15 @@ namespace ReserveBlockCore.Controllers
             return output;
         }
 
+        [HttpGet("GetCurrentSCOwner/{scUID}")]
+        public async Task<string> GetCurrentSCOwner(string scUID)
+        {
+            var output = "";
+
+            return output;
+        }
+
+
         [HttpGet("GetAllSmartContracts")]
         public async Task<string> GetAllSmartContracts()
         {
@@ -157,10 +166,16 @@ namespace ReserveBlockCore.Controllers
                 }
                 
                 scMainUpdated.Id = sc.Id;
+                var currentOwner = "";
+                var scState = SmartContractStateTrei.GetSmartContractState(scMain.SmartContractUID);
+                if(scState != null)
+                {
+                    currentOwner = scState.OwnerAddress;
+                }
 
                 var scInfo = new[]
                 {
-                new { SmartContract = scMain, SmartContractCode = scCode}
+                new { SmartContract = scMain, SmartContractCode = scCode, CurrentOwner = currentOwner}
             };
 
                 if (sc != null)
@@ -179,6 +194,26 @@ namespace ReserveBlockCore.Controllers
             }
             
             return output;
+        }
+
+        [HttpGet("GetLastKnownLocators/{scUID}")]
+        public async Task<string> GetLastKnownLocators(string scUID)
+        {
+            string output = "";
+
+            var scState = SmartContractStateTrei.GetSmartContractState(scUID);
+
+            if(scState != null)
+            {
+                output = JsonConvert.SerializeObject(new { Result = "Success", Message = $"Locators Found.", Locators = scState.Locators });
+            }
+            else
+            {
+                output = JsonConvert.SerializeObject(new { Result = "Fail", Message = $"Locators Not Found." });
+            }
+
+            return output;
+
         }
 
         [HttpPost("CreateSmartContract")]
@@ -206,16 +241,30 @@ namespace ReserveBlockCore.Controllers
                     scReturnData.SmartContractMain = result.Item2;
                     SmartContractMain.SmartContractData.SaveSmartContract(result.Item2, result.Item1);
 
+                    var txData = "";
+
+                    if (result.Item1 != null)
+                    {
+                        var bytes = Encoding.Unicode.GetBytes(result.Item1);
+                        var scBase64 = bytes.ToCompress().ToBase64();
+                        var newSCInfo = new[]
+                        {
+                            new { Function = "Mint()", ContractUID = scMain.SmartContractUID, Data = scBase64}
+                        };
+
+                        txData = JsonConvert.SerializeObject(newSCInfo);
+                    }
+
                     var nTx = new Transaction
                     {
                         Timestamp = TimeUtil.GetTime(),
-                        FromAddress = scReturnData.SmartContractMain.Address,
-                        ToAddress = scReturnData.SmartContractMain.Address,
+                        FromAddress = scReturnData.SmartContractMain.MinterAddress,
+                        ToAddress = scReturnData.SmartContractMain.MinterAddress,
                         Amount = 0.0M,
                         Fee = 0,
-                        Nonce = AccountStateTrei.GetNextNonce(scMain.Address),
+                        Nonce = AccountStateTrei.GetNextNonce(scMain.MinterAddress),
                         TransactionType = TransactionType.NFT_MINT,
-                        Data = scReturnData.SmartContractCode
+                        Data = txData
                     };
 
                     //Calculate fee for tx.
@@ -385,17 +434,90 @@ namespace ReserveBlockCore.Controllers
                 if (sc.IsPublished == true)
                 {
                     //Get beacons here!
-                    var beacons = await P2PClient.GetBeacons();
-                    if(beacons.Count() == 0)
+                    var locators = await P2PClient.GetBeacons();
+                    if(locators.Count() == 0)
                     {
                         output = "You are not connected to any beacons.";
+                        NFTLogUtility.Log("Error - You are not connected to any beacons.", "SCV1Controller.TransferNFT()");
                     }
                     else
                     {
-                        var tx = await SmartContractService.TransferSmartContract(sc, toAddress, beacons);
+                        NFTLogUtility.Log("Beacons Found. Getting asset names", "SCV1Controller.TransferNFT()");
+                        List<string> assets = new List<string>();
 
-                        var txJson = JsonConvert.SerializeObject(tx);
-                        output = txJson;
+                        if(sc.SmartContractAsset != null)
+                        {
+                            assets.Add(sc.SmartContractAsset.Name);
+                        }
+
+                        if(sc.Features != null)
+                        {
+                            foreach(var feature in sc.Features)
+                            {
+                                if(feature.FeatureName == FeatureName.Evolving)
+                                {
+                                    var count = 0;
+                                    var myArray = ((object[])feature.FeatureFeatures).ToList();
+                                    myArray.ForEach(x => {
+                                        var evolveDict = (Dictionary<string, object>)myArray[count];
+                                        SmartContractAsset evoAsset = new SmartContractAsset();
+                                        if (evolveDict.ContainsKey("SmartContractAsset"))
+                                        {
+
+                                            var assetEvo = (Dictionary<string, object>)evolveDict["SmartContractAsset"];
+                                            evoAsset.Name = (string)assetEvo["Name"];
+                                            if(!assets.Contains(evoAsset.Name))
+                                            {
+                                                assets.Add(evoAsset.Name);
+                                            }
+                                            count += 1;
+                                        }
+
+                                    });
+                                }
+                                if (feature.FeatureName == FeatureName.MultiAsset)
+                                {
+                                    var count = 0;
+                                    var myArray = ((object[])feature.FeatureFeatures).ToList();
+
+                                    myArray.ForEach(x => {
+                                        var multiAssetDict = (Dictionary<string, object>)myArray[count];
+
+                                        var fileName = multiAssetDict["FileName"].ToString();
+                                        if(!assets.Contains(fileName))
+                                        {
+                                            assets.Add(fileName);
+                                        }
+                                        
+                                        count += 1;
+                                        
+                                    });
+                                    
+                                }
+                            }
+                        }
+
+                        var assetString = "";
+                        assets.ForEach(x => { assetString = assetString + x + " "; });
+
+                        NFTLogUtility.Log($"Sending the following assets for upload: {assetString}", "SCV1Controller.TransferNFT()");
+
+                        var result  = await P2PClient.BeaconUploadRequest(locators, assets, sc.SmartContractUID, toAddress);
+                        if(result != "Fail" && result != "NA")
+                        {
+                            var md5List = MD5Utility.MD5ListCreator(assets, sc.SmartContractUID);
+                            var tx = await SmartContractService.TransferSmartContract(sc, toAddress, result, md5List);
+                            NFTLogUtility.Log($"NFT Transfer TX response was : {tx.Hash}", "SCV1Controller.TransferNFT()");
+                            NFTLogUtility.Log($"NFT Transfer TX Data was : {tx.Data}", "SCV1Controller.TransferNFT()");
+
+                            var txJson = JsonConvert.SerializeObject(tx);
+                            output = txJson;
+                        }
+                        else
+                        {
+                            NFTLogUtility.Log($"Beacon upload failed. Result was : {result}", "SCV1Controller.TransferNFT()");
+                        }
+                        
                     }
                 }
                 else

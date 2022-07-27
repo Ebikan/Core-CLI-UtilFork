@@ -1,4 +1,5 @@
-﻿using ReserveBlockCore.Utilities;
+﻿using ReserveBlockCore.Services;
+using ReserveBlockCore.Utilities;
 using System.Net.Sockets;
 using System.Text;
 
@@ -18,11 +19,11 @@ namespace ReserveBlockCore.Beacon
         /// <param name="TargetIP">IP Address of target beacon</param>
         /// <param name="Port">Server listening on this port</param>
         /// <returns>An object (BeaconResponse) with Status and Description</returns>
-        public static BeaconResponse Receive(string fileName, string TargetIP, int Port)
+        public static BeaconResponse Receive(string fileName, string TargetIP, int Port, string scUID)
         {
             try
             {
-                bool fileExist = File.Exists(GetPathUtility.GetBeaconPath() + fileName);
+                bool fileExist = File.Exists(NFTAssetFileUtility.CreateNFTAssetPath(fileName, scUID));
                 if (fileExist)
                 {
                     //do nothing
@@ -31,7 +32,7 @@ namespace ReserveBlockCore.Beacon
                 else
                 {
                     FileStream fs = null;
-                    fs = new FileStream(GetPathUtility.GetBeaconPath() + fileName, FileMode.CreateNew);
+                    fs = new FileStream(NFTAssetFileUtility.CreateNFTAssetPath(fileName, scUID), FileMode.CreateNew);
                     long current_file_pointer = 0;
                     TcpClient tc = new TcpClient(TargetIP, Port);
                     NetworkStream ns = tc.GetStream();
@@ -137,6 +138,7 @@ namespace ReserveBlockCore.Beacon
                                     ns.Write(data_to_send, 0, data_to_send.Length);
                                     ns.Flush();
                                     ProgressValue = (int)Math.Ceiling((double)recv_file_pointer / (double)fs.Length * 100);
+                                    ConsoleWriterService.Output($"{File_name} - Upload Progress: {ProgressValue}");
                                 }
                                 else
                                 {

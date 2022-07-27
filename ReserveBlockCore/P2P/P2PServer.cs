@@ -30,10 +30,10 @@ namespace ReserveBlockCore.P2P
             //Save Peer here
             var peers = Peers.GetAll();
             var peerList = peers.FindAll();
-            if(peerList.Count() > 0)
+            if (peerList.Count() > 0)
             {
                 var peerExist = peerList.Where(x => x.PeerIP == peerIP).FirstOrDefault();
-                if(peerExist == null)
+                if (peerExist == null)
                 {
                     Peers nPeer = new Peers
                     {
@@ -68,7 +68,7 @@ namespace ReserveBlockCore.P2P
                 //do some logic
             }
         }
-        
+
         public async Task SendMessage(string message, string data)
         {
             await Clients.Caller.SendAsync("GetMessage", message, data);
@@ -93,9 +93,9 @@ namespace ReserveBlockCore.P2P
         #region Receive Block
         public async Task ReceiveBlock(Block nextBlock)
         {
-            if(Program.BlocksDownloading == false)
+            if (Program.BlocksDownloading == false)
             {
-                if(nextBlock.ChainRefId == BlockchainData.ChainRef)
+                if (nextBlock.ChainRefId == BlockchainData.ChainRef)
                 {
                     await BlockQueueService.ProcessBlockQueue();
 
@@ -193,12 +193,12 @@ namespace ReserveBlockCore.P2P
 
             var peer = peerDB.FindOne(x => x.PeerIP == peerIP);
 
-            if(peer == null)
+            if (peer == null)
             {
                 //this does a ping back on the peer to see if it can also be an outgoing node.
                 var result = await P2PClient.PingBackPeer(peerIP);
 
-                Peers nPeer = new Peers { 
+                Peers nPeer = new Peers {
                     FailCount = 0,
                     IsIncoming = true,
                     IsOutgoing = result,
@@ -249,11 +249,149 @@ namespace ReserveBlockCore.P2P
 
         #endregion
 
+        #region  ReceiveDownloadRequest
+        public async Task<bool> ReceiveDownloadRequest(BeaconData.BeaconDownloadData bdd)
+        {
+            bool result = false;
+            var peerIP = GetIP(Context);
+
+            try
+            {
+                if (bdd != null)
+                {
+                    var scState = SmartContractStateTrei.GetSmartContractState(bdd.SmartContractUID);
+                    if (scState == null)
+                    {
+                        return result; //fail
+                    }
+
+                    var sigCheck = SignatureService.VerifySignature(scState.OwnerAddress, bdd.SmartContractUID, bdd.Signature);
+                    if (sigCheck == false)
+                    {
+                        return result; //fail
+                    }
+
+                    var beaconDatas = BeaconData.GetBeacon();
+                    var beaconData = BeaconData.GetBeaconData();
+                    foreach (var fileName in bdd.Assets)
+                    {
+                        if (beaconData != null)
+                        {
+                            var bdCheck = beaconData.Where(x => x.SmartContractUID == bdd.SmartContractUID && x.AssetName == fileName && x.NextAssetOwnerAddress == scState.OwnerAddress).FirstOrDefault();
+                            if (bdCheck != null)
+                            {
+                                if (beaconDatas != null)
+                                {
+                                    bdCheck.DownloadIPAddress = peerIP;
+                                    beaconDatas.Update(bdCheck);
+                                }
+                                else
+                                {
+                                    return result;//fail
+                                }
+                            }
+                            else
+                            {
+                                return result; //fail
+                            }
+                        }
+                        else
+                        {
+                            return result; //fail
+                        }
+
+                        result = true;
+                    }
+
+                }
+            }
+            catch (Exception ex)
+            {
+                ErrorLogUtility.LogError($"Error Creating BeaconData. Error Msg: {ex.Message}", "P2PServer.ReceiveUploadRequest()");
+            }
+
+            return result;
+        }
+
+        #endregion
+
+        #region ReceiveUploadRequest
+        public async Task<bool> ReceiveUploadRequest(BeaconData.BeaconSendData bsd)
+        {
+            bool result = false;
+            var peerIP = GetIP(Context);
+            try
+            {
+                if (bsd != null)
+                {
+                    var scState = SmartContractStateTrei.GetSmartContractState(bsd.SmartContractUID);
+                    if (scState == null)
+                    {
+                        return result;
+                    }
+
+                    var sigCheck = SignatureService.VerifySignature(scState.OwnerAddress, bsd.SmartContractUID, bsd.Signature);
+                    if (sigCheck == false)
+                    {
+                        return result;
+                    }
+
+                    var beaconData = BeaconData.GetBeaconData();
+                    foreach (var fileName in bsd.Assets)
+                    {
+                        if (beaconData == null)
+                        {
+                            var bd = new BeaconData
+                            {
+                                AssetExpireDate = 0,
+                                AssetReceiveDate = 0,
+                                AssetName = fileName,
+                                IPAdress = peerIP,
+                                NextAssetOwnerAddress = bsd.NextAssetOwnerAddress,
+                                SmartContractUID = bsd.SmartContractUID
+                            };
+
+                            BeaconData.SaveBeaconData(bd);
+                        }
+                        else
+                        {
+                            var bdCheck = beaconData.Where(x => x.SmartContractUID == bsd.SmartContractUID && x.AssetName == fileName).FirstOrDefault();
+                            if (bdCheck == null)
+                            {
+                                var bd = new BeaconData
+                                {
+                                    AssetExpireDate = 0,
+                                    AssetReceiveDate = 0,
+                                    AssetName = fileName,
+                                    IPAdress = peerIP,
+                                    NextAssetOwnerAddress = bsd.NextAssetOwnerAddress,
+                                    SmartContractUID = bsd.SmartContractUID
+                                };
+
+                                BeaconData.SaveBeaconData(bd);
+                            }
+                        }
+                    }
+
+                    result = true;
+
+                }
+            }
+            catch (Exception ex)
+            {
+                ErrorLogUtility.LogError($"Error Receive Upload Request. Error Msg: {ex.Message}", "P2PServer.ReceiveUploadRequest()");
+            }
+
+            return result;
+        }
+
+        #endregion
+
         #region Send Adjudicator
         public async Task<Adjudicators?> SendLeadAdjudicator()
         {
             var leadAdj = Program.LeadAdjudicator;
-            if(leadAdj == null)
+            if (leadAdj == null)
             {
                 leadAdj = Adjudicators.AdjudicatorData.GetLeadAdjudicator();
             }
@@ -299,7 +437,7 @@ namespace ReserveBlockCore.P2P
                 if (txFound == null)
                 {
                     var isTxStale = await TransactionData.IsTxTimestampStale(txReceived);
-                    if(!isTxStale)
+                    if (!isTxStale)
                     {
                         var txResult = await TransactionValidatorService.VerifyTX(txReceived); //sends tx to connected peers
                         if (txResult == false)
@@ -336,7 +474,7 @@ namespace ReserveBlockCore.P2P
                             return "TFVP"; //transaction failed verification process
                         }
                     }
-                    
+
 
                 }
                 else
@@ -374,7 +512,7 @@ namespace ReserveBlockCore.P2P
                             //delete failed
                         }
                     }
-                    
+
                 }
             }
             else
@@ -416,7 +554,7 @@ namespace ReserveBlockCore.P2P
                         return "TFVP"; //transaction failed verification process
                     }
                 }
-                
+
             }
 
             return "";
@@ -430,7 +568,7 @@ namespace ReserveBlockCore.P2P
             var validatorList = Validators.Validator.GetAll();
             var validatorListCount = validatorList.Count();
 
-            if(validatorListCount == 0)
+            if (validatorListCount == 0)
             {
                 return null;
             }
@@ -451,12 +589,12 @@ namespace ReserveBlockCore.P2P
 
             string data = "";
 
-            if(validator.NodeReferenceId == null)
+            if (validator.NodeReferenceId == null)
             {
                 return "FTAV";
             }
 
-            if(validator.NodeReferenceId != BlockchainData.ChainRef)
+            if (validator.NodeReferenceId != BlockchainData.ChainRef)
             {
                 return "FTAV";
             }
@@ -479,7 +617,7 @@ namespace ReserveBlockCore.P2P
                     if (result == true)
                     {
                         var valPosFound = validatorList.FindOne(x => x.Position == validator.Position);
-                        if(valPosFound != null)
+                        if (valPosFound != null)
                         {
                             validator.Position = validatorList.FindAll().Count() + 1; //adding just in case positions are off.
                         }
@@ -575,7 +713,7 @@ namespace ReserveBlockCore.P2P
             else
             {
                 var bannedNodes = validatorList.FindAll().Where(x => x.FailCount >= 10).ToList();
-                if(bannedNodes.Count() > 0)
+                if (bannedNodes.Count() > 0)
                 {
                     return bannedNodes;
                 }
@@ -600,7 +738,7 @@ namespace ReserveBlockCore.P2P
             var validators = Validators.Validator.GetAll();
             var hasValidators = validators.FindAll().Where(x => x.NodeIP == "SELF").Count(); //revise this to use local account and IsValidating
 
-            if(hasValidators > 0)
+            if (hasValidators > 0)
                 return "HelloVal";
 
             return "Hello";
@@ -618,5 +756,6 @@ namespace ReserveBlockCore.P2P
         }
 
         #endregion
+
     }
 }

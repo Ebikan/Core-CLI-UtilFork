@@ -7,6 +7,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using LiteDB;
+using Newtonsoft.Json;
 using ReserveBlockCore.Beacon;
 using ReserveBlockCore.Data;
 using ReserveBlockCore.EllipticCurve;
@@ -76,7 +77,7 @@ namespace ReserveBlockCore.Services
             //BlockchainData.ChainRef = "m_Gi9RNxviAq1TmvuPZsZBzdAa8AWVJtNa7cm1dFaT4dWDbdqSNSTh";
 
             //testnet
-            BlockchainData.ChainRef = "t6_Gi9RNxviAq1TmvuPZsZBzdAa8AWVJtNa7cm1dFaT4dWDbdqSNSTh";
+            BlockchainData.ChainRef = "m1_Gi9RNxviAq1TmvuPZsZBzdAa8AWVJtNa7cm1dFaT4dWDbdqSNSTh";
             LogUtility.Log("RBX ChainRef - " + BlockchainData.ChainRef, "Main");
 
             if (Program.IsTestNet)
@@ -117,6 +118,10 @@ namespace ReserveBlockCore.Services
             }
         }
 
+        internal static async void RunStateSync()
+        {
+            await StateTreiSyncService.SyncAccountStateTrei();
+        }
         internal static void RunRules()
         {
             //RuleService.ResetValidators();
@@ -128,15 +133,19 @@ namespace ReserveBlockCore.Services
         {
             try
             {
-                var port = Program.Port + 10000; //23338
-                if(Program.IsTestNet == true)
+                var beaconInfo = BeaconInfo.GetBeaconInfo();
+                if(beaconInfo != null)
                 {
-                    port = port + 10000; //33339
-                }
+                    var port = Program.Port + 10000; //23338
+                    if (Program.IsTestNet == true)
+                    {
+                        port = port + 10000; //33338
+                    }
 
-                BeaconServer server = new BeaconServer(GetPathUtility.GetBeaconPath(), port);
-                Thread obj_thread = new Thread(server.StartServer());
-                Console.WriteLine("Beacon Started");
+                    BeaconServer server = new BeaconServer(GetPathUtility.GetBeaconPath(), port);
+                    Thread obj_thread = new Thread(server.StartServer());
+                    Console.WriteLine("Beacon Started");
+                }
             }
             catch (Exception ex)
             {
@@ -188,6 +197,51 @@ namespace ReserveBlockCore.Services
             }
         } 
 
+        internal static void BootstrapBeacons()
+        {
+            var locators = new List<string>();
+            BeaconInfo.BeaconInfoJson beaconLoc1 = new BeaconInfo.BeaconInfoJson
+            {
+                IPAddress = "162.248.14.123",
+                Port = Program.IsTestNet != true ? Program.Port + 10000 : Program.Port + 20000,
+                Name = "RBX Beacon 1",
+                BeaconUID = "Foundation Beacon 1"
+
+            };
+
+            var beaconLocJson1 = JsonConvert.SerializeObject(beaconLoc1);
+            var locator1 = beaconLocJson1.ToBase64();
+
+            BeaconInfo.BeaconInfoJson beaconLoc2 = new BeaconInfo.BeaconInfoJson
+            {
+                IPAddress = "162.251.121.150",
+                Port = Program.IsTestNet != true ? Program.Port + 10000 : Program.Port + 20000,
+                Name = "RBX Beacon 2",
+                BeaconUID = "Foundation Beacon 2"
+
+            };
+
+            var beaconLocJson2 = JsonConvert.SerializeObject(beaconLoc2);
+            var locator2 = beaconLocJson2.ToBase64();
+
+            BeaconInfo.BeaconInfoJson beaconLoc3 = new BeaconInfo.BeaconInfoJson
+            {
+                IPAddress = "185.199.226.121",
+                Port = Program.IsTestNet != true ? Program.Port + 10000 : Program.Port + 20000,
+                Name = "RBX Beacon 3",
+                BeaconUID = "Foundation Beacon 3"
+
+            };
+
+            var beaconLocJson3 = JsonConvert.SerializeObject(beaconLoc3);
+            var locator3 = beaconLocJson3.ToBase64();
+
+            locators.Add(locator1);
+            locators.Add(locator2);
+            locators.Add(locator3);
+
+            Program.Locators = locators;
+        }
         internal static void ClearStaleMempool()
         {
             bool memTxDeleted = false;
@@ -202,7 +256,7 @@ namespace ReserveBlockCore.Services
                     var timeDiff = currentTime - time;
                     var minuteDiff = timeDiff / 60M;
 
-                    if(minuteDiff > 180.0M)
+                    if(minuteDiff > 120.0M)
                     {
                         pool.DeleteMany(x => x.Hash == tx.Hash);
                         memTxDeleted = true;
@@ -315,7 +369,7 @@ namespace ReserveBlockCore.Services
             var blockChain = BlockchainData.GetBlocks();
             var blocks = blockChain.Find(Query.All(Query.Descending)).ToList();
 
-            Program.MemBlocks = blocks.Take(200).ToList();
+            Program.MemBlocks = blocks.Take(300).ToList();
         }
 
         public static async Task ConnectoToAdjudicator()
@@ -362,6 +416,7 @@ namespace ReserveBlockCore.Services
                     var result = await P2PClient.GetCurrentHeight();
                     if (result.Item1 == true)
                     {
+                        ConsoleWriterService.Output("Block downloads started.");
                         LogUtility.Log("Block downloads started.", "DownloadBlocksOnStart()-if");
                         Program.BlocksDownloading = true;
                         Program.BlocksDownloading = await BlockDownloadService.GetAllBlocks(result.Item2);
@@ -369,6 +424,7 @@ namespace ReserveBlockCore.Services
                     //This is not being reached on some devices. 
                     else
                     {
+                        ConsoleWriterService.Output("Block downloads finished.");
                         LogUtility.Log("Block downloads finished.", "DownloadBlocksOnStart()-else");
                         Program.BlocksDownloading = false;
                         download = false; //exit the while.

@@ -51,7 +51,7 @@ namespace ReserveBlockCore.Services
                 }
                 else if(confirmChoice.ToLower() == "n")
                 {
-                    Console.WriteLine("Returning you to main menu...");
+                    Console.WriteLine("Returning you to main menu in 3 seconds...");
                     Thread.Sleep(3000);
                     StartupService.MainMenu();
                 }
@@ -148,7 +148,7 @@ namespace ReserveBlockCore.Services
 
                     var validatorTable = Validators.Validator.GetAll();
 
-                    var validatorCount = validatorTable.FindAll().Where(x => x.Address == account.Address).Count();
+                    var validatorCount = validatorTable.FindAll().Count();
                     if (validatorCount > 0)
                     {
                         output = "Account is already a validator";
@@ -183,7 +183,6 @@ namespace ReserveBlockCore.Services
 
                         await StartupService.ConnectoToAdjudicator();
                     }
-
                 }
             }
 

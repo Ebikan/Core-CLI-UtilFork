@@ -21,7 +21,7 @@ namespace ReserveBlockCore.Services
             {
                 if (block.ChainRefId != BlockchainData.ChainRef)
                 {
-                    return result;//block rejected due to chainref difference
+                    return result; //block rejected due to chainref difference
                 }
                 //Genesis Block
                 result = true;
@@ -73,7 +73,7 @@ namespace ReserveBlockCore.Services
             if(block.Height != 0)
             {
                 var prevTimestamp = Program.LastBlock.Timestamp;
-                var currentTimestamp = TimeUtil.GetTime(60);
+                var currentTimestamp = TimeUtil.GetTime(1);
                 if (prevTimestamp > block.Timestamp || block.Timestamp > currentTimestamp)
                 {
                     return result;
@@ -206,11 +206,24 @@ namespace ReserveBlockCore.Services
                                                 case "Transfer()":
                                                     if (data != "")
                                                     {
+                                                        var locators = (string?)scData["Locators"];
+                                                        var md5List = (string?)scData["MD5List"];
+                                                        var scUID = (string?)scData["ContractUID"];
+
                                                         var transferTask = Task.Run(() => { SmartContractMain.SmartContractData.CreateSmartContract(data); });
                                                         bool isCompletedSuccessfully = transferTask.Wait(TimeSpan.FromMilliseconds(Program.NFTTimeout * 1000));
                                                         if(!isCompletedSuccessfully)
                                                         {
                                                             NFTLogUtility.Log("Failed to decompile smart contract for transfer in time.", "BlockValidatorService.ValidateBlock() - line 213");
+                                                        }
+                                                        else
+                                                        {
+                                                            //download files here.
+                                                            if(locators != "NA")
+                                                            {
+                                                                await NFTAssetFileUtility.DownloadAssetFromBeacon(scUID, locators, md5List);
+                                                            }
+                                                            
                                                         }
                                                     }
                                                     break;
@@ -321,7 +334,6 @@ namespace ReserveBlockCore.Services
                 return result;
             }
 
-            
         }
 
         //This method does not add block or update any treis

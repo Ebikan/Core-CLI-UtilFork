@@ -66,7 +66,7 @@ namespace ReserveBlockCore.Data
 
             var blockchain = BlockchainData.GetBlocks();
             var blocks = blockchain.Find(Query.All(Query.Descending)).Where(x => x.Timestamp >= tx.Timestamp).ToList();
-
+            
             var transactions = blocks.SelectMany(x => x.Transactions).ToList();
             if (transactions.Count() > 0)
             {
@@ -87,7 +87,7 @@ namespace ReserveBlockCore.Data
             var timeDiff = currentTime - tx.Timestamp;
             var minuteDiff = timeDiff / 60M;
 
-            if (minuteDiff > 180.0M)
+            if (minuteDiff > 120.0M)
             {
                 result = true;
             }

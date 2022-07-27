@@ -39,7 +39,7 @@ namespace ReserveBlockCore.Services
                 var timeDiff = currentTime - txRequest.Timestamp;
                 var minuteDiff = timeDiff / 60M;
 
-                if (minuteDiff > 180.0M)
+                if (minuteDiff > 120.0M)
                 {
                     return txResult;
                 }
@@ -85,7 +85,7 @@ namespace ReserveBlockCore.Services
                 var amountFormat = 0M;
                 if (amountCheck)
                 {
-                    var amountStr = txRequest.Amount.ToString("#");
+                    var amountStr = txRequest.Amount.ToString("0.0");
                     amountFormat = decimal.Parse(amountStr);
                 }
 
@@ -105,7 +105,24 @@ namespace ReserveBlockCore.Services
 
                 if (!newTxnMod.Hash.Equals(txRequest.Hash))
                 {
-                    return txResult;
+                    var newTxnModZero = new Transaction()
+                    {
+                        Timestamp = txRequest.Timestamp,
+                        FromAddress = txRequest.FromAddress,
+                        ToAddress = txRequest.ToAddress,
+                        Amount = 0,
+                        Fee = txRequest.Fee,
+                        Nonce = txRequest.Nonce,
+                        TransactionType = txRequest.TransactionType,
+                        Data = txRequest.Data,
+                    };
+
+                    newTxnModZero.Build();
+
+                    if (!newTxnModZero.Hash.Equals(txRequest.Hash))
+                    {
+                        return txResult;
+                    }
                 }
                 
             }
@@ -316,8 +333,6 @@ namespace ReserveBlockCore.Services
 
         }
 
-        ///////
-        ///
         public static async Task<(bool, string)> VerifyTXDetailed(Transaction txRequest, bool blockDownloads = false)
         {
             bool txResult = false;
@@ -347,7 +362,7 @@ namespace ReserveBlockCore.Services
                 var timeDiff = currentTime - txRequest.Timestamp;
                 var minuteDiff = timeDiff / 60M;
 
-                if (minuteDiff > 180.0M)
+                if (minuteDiff > 120.0M)
                 {
                     return (txResult, "The timestamp of this transactions is too old to be sent now.");
                 }
@@ -390,33 +405,39 @@ namespace ReserveBlockCore.Services
 
             if (!newTxn.Hash.Equals(txRequest.Hash))
             {
-                var amountCheck = txRequest.Amount % 1 == 0;
-                var amountFormat = 0M;
-                if (amountCheck)
+                if(txRequest.Amount != 0)
                 {
-                    var amountStr = txRequest.Amount.ToString("#");
-                    amountFormat = decimal.Parse(amountStr);
+                    var amountCheck = txRequest.Amount % 1 == 0;
+                    var amountFormat = 0M;
+                    if (amountCheck)
+                    {
+                        var amountStr = txRequest.Amount.ToString("#");
+                        amountFormat = decimal.Parse(amountStr);
+                    }
+
+                    var newTxnMod = new Transaction()
+                    {
+                        Timestamp = txRequest.Timestamp,
+                        FromAddress = txRequest.FromAddress,
+                        ToAddress = txRequest.ToAddress,
+                        Amount = amountFormat,
+                        Fee = txRequest.Fee,
+                        Nonce = txRequest.Nonce,
+                        TransactionType = txRequest.TransactionType,
+                        Data = txRequest.Data,
+                    };
+
+                    newTxnMod.Build();
+
+                    if (!newTxnMod.Hash.Equals(txRequest.Hash))
+                    {
+                        return (txResult, "This transactions hash is not equal to the original hash."); 
+                    }
                 }
-
-                var newTxnMod = new Transaction()
+                else
                 {
-                    Timestamp = txRequest.Timestamp,
-                    FromAddress = txRequest.FromAddress,
-                    ToAddress = txRequest.ToAddress,
-                    Amount = amountFormat,
-                    Fee = txRequest.Fee,
-                    Nonce = txRequest.Nonce,
-                    TransactionType = txRequest.TransactionType,
-                    Data = txRequest.Data,
-                };
-
-                newTxnMod.Build();
-
-                if (!newTxnMod.Hash.Equals(txRequest.Hash))
-                {
-                    return (txResult, "This transactions hash is not equal to the original hash."); ;
+                    return (txResult, "This transactions hash is not equal to the original hash.");
                 }
-
             }
 
             if (txRequest.TransactionType != TransactionType.TX)
@@ -613,11 +634,11 @@ namespace ReserveBlockCore.Services
             }
             else
             {
-                return (txResult, "Verify has completed.");
+                return (txResult, "Signature Failed to verify.");
             }
 
             //Return verification result.
-            return (txResult, "Signature Verify has Failed.");
+            return (txResult, "Transaction has been verified.");
 
         }
 

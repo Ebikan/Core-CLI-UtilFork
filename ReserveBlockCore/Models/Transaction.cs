@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using LiteDB;
+using Newtonsoft.Json;
 using ReserveBlockCore.Data;
 using ReserveBlockCore.EllipticCurve;
 using ReserveBlockCore.Services;
@@ -72,11 +73,13 @@ namespace ReserveBlockCore.Models
         TX,
         NODE,
         NFT_MINT, //mint
-        NFT_TX, //transfer or sale
+        NFT_TX, //transfer or other process (not for sale or burn)
         NFT_BURN,//burn nft
         NFT_SALE,//sale NFT
         ADNR, //address dnr
-        DSTR //DST shop registration
+        DSTR, //DST shop registration
+        VOTE_TOPIC, //voting topic for validators to vote on
+        VOTE //cast vote for topic
     }
 
 }

@@ -113,18 +113,24 @@ namespace ReserveBlockCore.Services
         #endregion
 
         #region TransferSmartContract
-        public static async Task<Transaction?> TransferSmartContract(SmartContractMain scMain, string toAddress, List<string> beacons)
+        public static async Task<Transaction?> TransferSmartContract(SmartContractMain scMain, string toAddress, string locators, string md5List = "NA")
         {
             Transaction? scTx = null;
 
-            var account = AccountData.GetSingleAccount(scMain.Address);
+            var scst = SmartContractStateTrei.GetSmartContractState(scMain.SmartContractUID);
+            
+            if(scst == null)
+            {
+                return null;
+            }
+
+            var account = AccountData.GetSingleAccount(scst.OwnerAddress);
             if (account == null)
             {
                 return null;//Minter address is not found
             }
-            var fromAddress = scMain.Address;
+            var fromAddress = account.Address;
 
-            scMain.Address = toAddress;
             var scData = SmartContractReaderService.ReadSmartContract(scMain);
 
             var txData = "";
@@ -136,7 +142,7 @@ namespace ReserveBlockCore.Services
                 var scBase64 = SmartContractUtility.Compress(bytes).ToBase64();
                 var newSCInfo = new[]
                 {
-                    new { Function = "Transfer()", ContractUID = scMain.SmartContractUID, ToAddress = toAddress, Data = scBase64}
+                    new { Function = "Transfer()", ContractUID = scMain.SmartContractUID, ToAddress = toAddress, Data = scBase64, Locators = locators, MD5List = md5List}
                 };
 
                 txData = JsonConvert.SerializeObject(newSCInfo);
@@ -149,7 +155,7 @@ namespace ReserveBlockCore.Services
                 ToAddress = toAddress,
                 Amount = 0.0M,
                 Fee = 0,
-                Nonce = AccountStateTrei.GetNextNonce(scMain.Address),
+                Nonce = AccountStateTrei.GetNextNonce(account.Address),
                 TransactionType = TransactionType.NFT_TX,
                 Data = txData
             };
@@ -207,7 +213,14 @@ namespace ReserveBlockCore.Services
         {
             Transaction? scTx = null;
 
-            var account = AccountData.GetSingleAccount(scMain.Address);
+            var scst = SmartContractStateTrei.GetSmartContractState(scMain.SmartContractUID);
+
+            if (scst == null)
+            {
+                return null;
+            }
+
+            var account = AccountData.GetSingleAccount(scst.OwnerAddress);
             if (account == null)
             {
                 return null;//Minter address is not found
@@ -223,7 +236,7 @@ namespace ReserveBlockCore.Services
                 var scBase64 = SmartContractUtility.Compress(bytes).ToBase64();
                 var newSCInfo = new[]
                 {
-                    new { Function = "Burn()", ContractUID = scMain.SmartContractUID, FromAddress = scMain.Address}
+                    new { Function = "Burn()", ContractUID = scMain.SmartContractUID, FromAddress = account.Address}
                 };
 
                 txData = JsonConvert.SerializeObject(newSCInfo);
@@ -232,11 +245,11 @@ namespace ReserveBlockCore.Services
             scTx = new Transaction
             {
                 Timestamp = TimeUtil.GetTime(),
-                FromAddress = scMain.Address,
-                ToAddress = scMain.Address,
+                FromAddress = account.Address,
+                ToAddress = account.Address,
                 Amount = 0.0M,
                 Fee = 0,
-                Nonce = AccountStateTrei.GetNextNonce(scMain.Address),
+                Nonce = AccountStateTrei.GetNextNonce(account.Address),
                 TransactionType = TransactionType.NFT_BURN,
                 Data = txData
             };

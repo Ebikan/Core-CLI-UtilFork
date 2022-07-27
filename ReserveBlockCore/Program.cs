@@ -29,13 +29,13 @@ namespace ReserveBlockCore
         private static Timer? ValidatorListTimer;//checks currents peers and old peers and will request others to try. 
         private static Timer? DBCommitTimer;//checks dbs and commits log files. 
 
-
         public static List<Block> MemBlocks = new List<Block>();
         public static List<Block> QueuedBlocks = new List<Block>();
         public static List<Transaction> MempoolList = new List<Transaction>();
         public static List<NodeInfo> Nodes = new List<NodeInfo>();
         public static List<Validators> InactiveValidators = new List<Validators>();
         public static List<Validators> MasternodePool = new List<Validators>();
+        public static List<string> Locators = new List<string>();
         public static long BlockHeight = -1;
         public static bool StopConsoleOutput = false;
         public static Block LastBlock = new Block();
@@ -82,8 +82,8 @@ namespace ReserveBlockCore
         public static byte AddressPrefix = 0x3C; //address prefix 'R'
         public static bool PrintConsoleErrors = false;
         public static Process proc = new Process();
-        public static int MajorVer = 1;
-        public static int MinorVer = 22;
+        public static int MajorVer = 2;
+        public static int MinorVer = 0;
         public static int BuildVer = 0;
         public static string CLIVersion = "";
         public static bool HDWallet = false;
@@ -123,7 +123,7 @@ namespace ReserveBlockCore
             var dateDiff = (int)Math.Round((currentDate - originDate).TotalDays);
             BuildVer = dateDiff;
 
-            CLIVersion = MajorVer.ToString() + "." + MinorVer.ToString() + "." + BuildVer.ToString() + "-pre";
+            CLIVersion = MajorVer.ToString() + "." + MinorVer.ToString() + "." + BuildVer.ToString() + "-beta";
             LogUtility.Log("", "Main", true);
             var logCLIVer = CLIVersion.ToString();
 
@@ -136,6 +136,8 @@ namespace ReserveBlockCore
 
             StartupService.StartupDatabase();// initializes databases
 
+            StartupService.SetBlockchainChainRef(); // sets blockchain reference id
+            StartupService.CheckBlockRefVerToDb();
             StartupService.HDWalletCheck();// checks for HD wallet
 
             //To update this go to project -> right click properties -> go To debug -> general -> open debug launch profiles
@@ -199,10 +201,6 @@ namespace ReserveBlockCore
             await SeedNodeService.GetSeedNodePeers(nodeIp);
             //Temporary for TestNet------------------------------------
 
-
-            StartupService.SetBlockchainChainRef(); // sets blockchain reference id
-            StartupService.CheckBlockRefVerToDb();
-
             StartupService.SetBlockchainVersion(); //sets the block version for rules
             StartupService.SetBlockHeight();
             StartupService.SetLastBlock();
@@ -210,13 +208,15 @@ namespace ReserveBlockCore
             StartupService.SetupNodeDictionary();
             StartupService.ClearStaleMempool();
             StartupService.SetValidator();
-            
 
+            StartupService.RunStateSync();
             StartupService.RunRules(); //rules for cleaning up wallet data.
             StartupService.ClearValidatorDups();
 
             StartupService.SetBootstrapAdjudicator(); //sets initial validators from bootstrap list.
-            
+            StartupService.BootstrapBeacons();
+
+
             PeersConnecting = true;
             BlocksDownloading = true;
             StopAllTimers = true;

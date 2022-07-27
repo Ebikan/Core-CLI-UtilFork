@@ -43,7 +43,7 @@ namespace ReserveBlockCore.Controllers
             BeaconInfo.BeaconInfoJson beaconLoc = new BeaconInfo.BeaconInfoJson
             {
                 IPAddress = ip,
-                Port = Program.Port,
+                Port = Program.IsTestNet != true ? Program.Port + 10000 : Program.Port + 20000,
                 Name = name,
                 BeaconUID = bUID
                 
@@ -122,6 +122,15 @@ namespace ReserveBlockCore.Controllers
                 output = JsonConvert.SerializeObject(new { Result = "Success", ResultMessage = result.Value });
             }
 
+            return output;
+        }
+
+        [HttpGet("GetBeaconAssets/{scUID}/{locators}/{**signature}/")]
+        public async Task<string> GetBeaconAssets(string scUID, string locators, string signature)
+        {
+            //signature message = scUID
+            string output = "";
+            var result = await NFTAssetFileUtility.DownloadAssetFromBeacon(scUID, locators, signature, "NA");
             return output;
         }
     }

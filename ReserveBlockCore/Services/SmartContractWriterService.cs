@@ -17,7 +17,7 @@ namespace ReserveBlockCore.Services
             var scUID = Guid.NewGuid().ToString().Replace("-", "") + ":" + TimeUtil.GetTime().ToString();
             var features = "";
             var featuresList = scMain.Features;
-            var signature = "Insert Signature";
+            var hash = ""; //create hash
             string scText = "";
 
             bool isDynamic = false;
@@ -27,9 +27,8 @@ namespace ReserveBlockCore.Services
             StringBuilder strMultiAssetBld = new StringBuilder();
 
             scMain.SmartContractUID = scUID;
-            scMain.Signature = signature;
             scMain.IsMinter = true;
-            scMain.MinterAddress = scMain.Address;
+            scMain.MinterAddress = scMain.MinterAddress;
             scMain.IsPublished = false;
 
             var appendChar = "\"|->\"";
@@ -195,72 +194,66 @@ namespace ReserveBlockCore.Services
                 //NFT Main Data
                 strBuild.AppendLine(("let Name = \"{#NFTName}\"").Replace("{#NFTName}", scMain.Name));
                 strBuild.AppendLine(("let Description = \"{#Description}\"").Replace("{#Description}", scMain.Description));
-                strBuild.AppendLine(("let Address = \"{#Address}\"").Replace("{#Address}", scMain.Address));
+                //strBuild.AppendLine(("let Address = \"{#Address}\"").Replace("{#Address}", scMain.Address));
                 strBuild.AppendLine(("let MinterAddress = \"{#MinterAddress}\"").Replace("{#MinterAddress}", scMain.MinterAddress));
                 strBuild.AppendLine(("let MinterName = \"{#MinterName}\"").Replace("{#MinterName}", scMain.MinterName));
                 strBuild.AppendLine(("let SmartContractUID = \"" + scUID + "\""));
-                strBuild.AppendLine(("let Signature = \"" + signature + "\""));
+                //strBuild.AppendLine(("let Signature = \"" + signature + "\""));
                 strBuild.AppendLine(("let Features = \"" + features + "\""));
 
                 //NFT asset Data
-                strBuild.AppendLine(("let Extension = \"" + scAsset.Extension + "\""));
+                //strBuild.AppendLine(("let Extension = \"" + scAsset.Extension + "\""));
                 strBuild.AppendLine(("let FileSize = \"" + scAsset.FileSize.ToString() + "\""));
-                strBuild.AppendLine(("let Location = \"" + scAsset.Location + "\""));
+                //strBuild.AppendLine(("let Location = \"" + scAsset.Location + "\""));
                 strBuild.AppendLine(("let FileName = \"" + scAsset.Name + "\""));
                 strBuild.AppendLine(("let AssetAuthorName = \"" + scAsset.AssetAuthorName + "\""));
 
                 strBuild.AppendLine("function NftMain(data : string) : string");
                 strBuild.AppendLine("{");
-                strBuild.AppendLine(@"if data == ""nftdata""");
-                strBuild.AppendLine("{");
-                strBuild.AppendLine("return GetNFTData(Name, Description, Address, MinterAddress)");
-                strBuild.AppendLine("}");
-                strBuild.AppendLine(@"else if data == ""getnftassetdata""");
-                strBuild.AppendLine("{");
-                strBuild.AppendLine("return GetNFTAssetData(FileName, Location, FileSize, Extension, AssetAuthorName)");
-                strBuild.AppendLine("}");
+                strBuild.AppendLine(@"  if data == ""nftdata""");
+                strBuild.AppendLine("   {");
+                strBuild.AppendLine("       return GetNFTData(Name, Description, MinterAddress)");
+                strBuild.AppendLine("   }");
+                strBuild.AppendLine(@"  else if data == ""getnftassetdata""");
+                strBuild.AppendLine("   {");
+                strBuild.AppendLine("       return GetNFTAssetData(FileName, FileSize, AssetAuthorName)");
+                strBuild.AppendLine("   }");
                 if (featuresList != null)
                 {
                     if (featuresList.Exists(x => x.FeatureName == FeatureName.Royalty))
                     {
-                        strBuild.AppendLine(@"else if data == ""getroyaltydata""");
-                        strBuild.AppendLine("{");
-                        strBuild.AppendLine("return GetRoyaltyData(RoyaltyType, RoyaltyAmount, RoyaltyPayToAddress)");
-                        strBuild.AppendLine("}");
+                        strBuild.AppendLine(@"  else if data == ""getroyaltydata""");
+                        strBuild.AppendLine("   {");
+                        strBuild.AppendLine("       return GetRoyaltyData(RoyaltyType, RoyaltyAmount, RoyaltyPayToAddress)");
+                        strBuild.AppendLine("   }");
                     }
                 }
 
-                strBuild.AppendLine(@"return ""No Method Named "" + data + "" was found.""");
+                strBuild.AppendLine(@"  return ""No Method Named "" + data + "" was found.""");
                 strBuild.AppendLine("}");
 
                 //Returns NFT Main Data
-                strBuild.AppendLine("function GetNFTData(name : string, desc : string, addr : string, mintAddr: string) : string");
+                strBuild.AppendLine("function GetNFTData(name : string, desc : string, mintAddr: string) : string");
                 strBuild.AppendLine("{");
-                strBuild.AppendLine("return name + " + appendChar + " + desc + " + appendChar + " + addr + " + appendChar + " + mintAddr");
+                strBuild.AppendLine("   return name + " + appendChar + " + desc + " + appendChar + " + mintAddr");
                 strBuild.AppendLine("}");
 
                 //Returns NFT Asset Data
-                strBuild.AppendLine("function GetNFTAssetData(fileName : string, loc : string, fileSize : string, ext : string, assetAuthor : string) : string");
+                strBuild.AppendLine("function GetNFTAssetData(fileName : string, fileSize : string, assetAuthor : string) : string");
                 strBuild.AppendLine("{");
-                strBuild.AppendLine("return (fileName + " + appendChar + " + loc + " + appendChar + " + fileSize + " + appendChar + " + ext + " + appendChar + " + assetAuthor)");
+                strBuild.AppendLine("   return (fileName + " + appendChar + " + fileSize + " + appendChar + " + assetAuthor)");
                 strBuild.AppendLine("}");
 
                 //Returns NFT SmartContractUID
                 strBuild.AppendLine("function GetNFTId() : string");
                 strBuild.AppendLine("{");
-                strBuild.AppendLine("return SmartContractUID");
+                strBuild.AppendLine("   return SmartContractUID");
                 strBuild.AppendLine("}");
 
                 //Return NFT Features
                 strBuild.AppendLine("function GetNFTFeatures() : string");
                 strBuild.AppendLine("{");
-                strBuild.AppendLine("return Features");
-                strBuild.AppendLine("}");
-
-                //Returns NFT Signature
-                strBuild.AppendLine("function GetNFTSignature() : string");
-                strBuild.AppendLine("{");
-                strBuild.AppendLine("return Signature");
+                strBuild.AppendLine("   return Features");
                 strBuild.AppendLine("}");
 
                 if (featuresList != null)
@@ -307,7 +300,6 @@ namespace ReserveBlockCore.Services
             StringBuilder strEvolveBld = new StringBuilder();
             StringBuilder strMultiAssetBld = new StringBuilder();
 
-            scMain.Signature = signature;
             scMain.IsMinter = false;
             scMain.IsPublished = true;
 
@@ -447,73 +439,68 @@ namespace ReserveBlockCore.Services
             //NFT Main Data
             strBuild.AppendLine(("let Name = \"{#NFTName}\"").Replace("{#NFTName}", scMain.Name));
             strBuild.AppendLine(("let Description = \"{#Description}\"").Replace("{#Description}", scMain.Description));
-            strBuild.AppendLine(("let Address = \"{#Address}\"").Replace("{#Address}", scMain.Address));
+            //strBuild.AppendLine(("let Address = \"{#Address}\"").Replace("{#Address}", scMain.Address));
             strBuild.AppendLine(("let MinterAddress = \"{#MinterAddress}\"").Replace("{#MinterAddress}", scMain.MinterAddress));
             strBuild.AppendLine(("let MinterName = \"{#MinterName}\"").Replace("{#MinterName}", scMain.MinterName));
             strBuild.AppendLine(("let SmartContractUID = \"" + scMain.SmartContractUID + "\""));
-            strBuild.AppendLine(("let Signature = \"" + signature + "\""));
+            //strBuild.AppendLine(("let Signature = \"" + signature + "\""));
             strBuild.AppendLine(("let Features = \"" + features + "\""));
 
             //NFT asset Data
-            strBuild.AppendLine(("let Extension = \"" + scAsset.Extension + "\""));
+            //strBuild.AppendLine(("let Extension = \"" + scAsset.Extension + "\""));
             strBuild.AppendLine(("let FileSize = \"" + scAsset.FileSize.ToString() + "\""));
-            strBuild.AppendLine(("let Location = \"" + scAsset.Location + "\""));
+            //strBuild.AppendLine(("let Location = \"" + scAsset.Location + "\""));
             strBuild.AppendLine(("let FileName = \"" + scAsset.Name + "\""));
             strBuild.AppendLine(("let AssetAuthorName = \"" + scAsset.AssetAuthorName + "\""));
 
             strBuild.AppendLine("function NftMain(data : string) : string");
             strBuild.AppendLine("{");
-            strBuild.AppendLine(@"if data == ""nftdata""");
-            strBuild.AppendLine("{");
-            strBuild.AppendLine("return GetNFTData(Name, Description, Address, MinterAddress)");
-            strBuild.AppendLine("}");
-            strBuild.AppendLine(@"else if data == ""getnftassetdata""");
-            strBuild.AppendLine("{");
-            strBuild.AppendLine("return GetNFTAssetData(FileName, Location, FileSize, Extension, AssetAuthorName)");
-            strBuild.AppendLine("}");
+            strBuild.AppendLine(@"  if data == ""nftdata""");
+            strBuild.AppendLine("   {");
+            strBuild.AppendLine("       return GetNFTData(Name, Description, MinterAddress)");
+            strBuild.AppendLine("   }");
+            strBuild.AppendLine(@"  else if data == ""getnftassetdata""");
+            strBuild.AppendLine("   {");
+            strBuild.AppendLine("       return GetNFTAssetData(FileName, FileSize, AssetAuthorName)");
+            strBuild.AppendLine("   }");
             if (featuresList != null)
             {
                 if (featuresList.Exists(x => x.FeatureName == FeatureName.Royalty))
                 {
-                    strBuild.AppendLine(@"else if data == ""getroyaltydata""");
-                    strBuild.AppendLine("{");
-                    strBuild.AppendLine("return GetRoyaltyData(RoyaltyType, RoyaltyAmount, RoyaltyPayToAddress)");
-                    strBuild.AppendLine("}");
+                    strBuild.AppendLine(@"  else if data == ""getroyaltydata""");
+                    strBuild.AppendLine("   {");
+                    strBuild.AppendLine("       return GetRoyaltyData(RoyaltyType, RoyaltyAmount, RoyaltyPayToAddress)");
+                    strBuild.AppendLine("   }");
                 }
             }
 
-            strBuild.AppendLine(@"return ""No Method Named "" + data + "" was found.""");
+            strBuild.AppendLine(@"  return ""No Method Named "" + data + "" was found.""");
             strBuild.AppendLine("}");
 
             //Returns NFT Main Data
-            strBuild.AppendLine("function GetNFTData(name : string, desc : string, addr : string, mintAddr: string) : string");
+            strBuild.AppendLine("function GetNFTData(name : string, desc : string, mintAddr: string) : string");
             strBuild.AppendLine("{");
-            strBuild.AppendLine("return name + " + appendChar + " + desc + " + appendChar + " + addr + " + appendChar + " + mintAddr");
+            strBuild.AppendLine("   return name + " + appendChar + " + desc + " + appendChar + " + mintAddr");
             strBuild.AppendLine("}");
 
             //Returns NFT Asset Data
-            strBuild.AppendLine("function GetNFTAssetData(fileName : string, loc : string, fileSize : string, ext : string, assetAuthor : string) : string");
+            strBuild.AppendLine("function GetNFTAssetData(fileName : string, fileSize : string, assetAuthor : string) : string");
             strBuild.AppendLine("{");
-            strBuild.AppendLine("return (fileName + " + appendChar + " + loc + " + appendChar + " + fileSize + " + appendChar + " + ext + " + appendChar + " + assetAuthor)");
+            strBuild.AppendLine("   return (fileName + " + appendChar + " + fileSize + " + appendChar + " + assetAuthor)");
             strBuild.AppendLine("}");
 
             //Returns NFT SmartContractUID
             strBuild.AppendLine("function GetNFTId() : string");
             strBuild.AppendLine("{");
-            strBuild.AppendLine("return SmartContractUID");
+            strBuild.AppendLine("   return SmartContractUID");
             strBuild.AppendLine("}");
 
             //Return NFT Features
             strBuild.AppendLine("function GetNFTFeatures() : string");
             strBuild.AppendLine("{");
-            strBuild.AppendLine("return Features");
+            strBuild.AppendLine("   return Features");
             strBuild.AppendLine("}");
 
-            //Returns NFT Signature
-            strBuild.AppendLine("function GetNFTSignature() : string");
-            strBuild.AppendLine("{");
-            strBuild.AppendLine("return Signature");
-            strBuild.AppendLine("}");
 
             if (featuresList != null)
             {

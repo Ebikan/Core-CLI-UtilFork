@@ -1,11 +1,14 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using ReserveBlockCore.Data;
 using ReserveBlockCore.Models;
+using ReserveBlockCore.Models.SmartContracts;
 using ReserveBlockCore.P2P;
 using ReserveBlockCore.Services;
 using ReserveBlockCore.Utilities;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace ReserveBlockCore.Controllers
@@ -45,6 +48,211 @@ namespace ReserveBlockCore.Controllers
             return output;
         }
 
+        //step 2b if its NFT Minting
+        [HttpPost("GetNFTMintData")]
+        public async Task<string> GetNFTMintData([FromBody] object jsonData)
+        {
+            var output = "";
+
+            var scMain = JsonConvert.DeserializeObject<SmartContractMain>(jsonData.ToString());
+
+            try
+            {
+                var result = await SmartContractWriterService.WriteSmartContract(scMain);
+
+                var txData = "";
+
+                if (result.Item1 != null)
+                {
+                    var bytes = Encoding.Unicode.GetBytes(result.Item1);
+                    var scBase64 = bytes.ToCompress().ToBase64();
+                    var newSCInfo = new[]
+                    {
+                            new { Function = "Mint()", ContractUID = scMain.SmartContractUID, Data = scBase64}
+                    };
+
+                    txData = JsonConvert.SerializeObject(newSCInfo);
+                    var txJToken = JToken.Parse(txData.ToString());
+                    //Type type = typeof(string);
+                    //var dataTest = txJToken["Data"] != null ? txJToken["Data"].ToString(Formatting.None) : null;//sometest["Data"].ToObject<string>();
+                    //txJToken["Data"] = dataTest;
+                    output = txData;
+                }
+            }
+            catch(Exception ex)
+            {
+                output = JsonConvert.SerializeObject(new { Success = false, Message = ex.Message});
+            }
+
+            return output;
+        }
+
+        //2c - Skip this if you are needing to move files and use beacons.
+        [HttpGet("CreateBeaconUploadRequest/{scUID}/{toAddress}/{**signature}")]
+        public async Task<string> CreateBeaconUploadRequest(string scUID, string toAddress, string signature)
+        {
+            var output = "";
+
+            var scStateTrei = SmartContractStateTrei.GetSmartContractState(scUID);
+            if (scStateTrei != null)
+            {
+                var sc = SmartContractMain.GenerateSmartContractInMemory(scStateTrei.ContractData);
+                if (sc != null)
+                {
+                    if (sc.IsPublished == true)
+                    {
+                        //Get beacons here!
+                        var locators = await P2PClient.GetBeacons();
+                        if (locators.Count() == 0)
+                        {
+                            output = "You are not connected to any beacons.";
+                        }
+                        else
+                        {
+                            List<string> assets = new List<string>();
+
+                            if (sc.SmartContractAsset != null)
+                            {
+                                assets.Add(sc.SmartContractAsset.Name);
+                            }
+                            if (sc.Features != null)
+                            {
+                                foreach (var feature in sc.Features)
+                                {
+                                    if (feature.FeatureName == FeatureName.Evolving)
+                                    {
+                                        var count = 0;
+                                        var myArray = ((object[])feature.FeatureFeatures).ToList();
+                                        myArray.ForEach(x => {
+                                            var evolveDict = (Dictionary<string, object>)myArray[count];
+                                            SmartContractAsset evoAsset = new SmartContractAsset();
+                                            if (evolveDict.ContainsKey("SmartContractAsset"))
+                                            {
+
+                                                var assetEvo = (Dictionary<string, object>)evolveDict["SmartContractAsset"];
+                                                evoAsset.Name = (string)assetEvo["Name"];
+                                                if (!assets.Contains(evoAsset.Name))
+                                                {
+                                                    assets.Add(evoAsset.Name);
+                                                }
+                                                count += 1;
+                                            }
+
+                                        });
+                                    }
+                                    if (feature.FeatureName == FeatureName.MultiAsset)
+                                    {
+                                        var count = 0;
+                                        var myArray = ((object[])feature.FeatureFeatures).ToList();
+
+                                        myArray.ForEach(x => {
+                                            var multiAssetDict = (Dictionary<string, object>)myArray[count];
+
+                                            var fileName = multiAssetDict["FileName"].ToString();
+                                            if (!assets.Contains(fileName))
+                                            {
+                                                assets.Add(fileName);
+                                            }
+
+                                            count += 1;
+
+                                        });
+
+                                    }
+                                }
+                            }
+
+                            var result = await P2PClient.BeaconUploadRequest(locators, assets, sc.SmartContractUID, toAddress, signature);
+                            if (result != "NA" && result != "Fail")
+                            {
+                                var md5List = MD5Utility.MD5ListCreator(assets, sc.SmartContractUID);
+
+                                var finalOutput = JsonConvert.SerializeObject(new { Locators = result, MD5List = md5List });
+                                output = finalOutput;
+
+                            }
+                        }
+                    }
+                }
+            }
+
+            return output;
+        }
+
+        //2d if its NFT Transfers. This = Transaction.Data 
+        [HttpGet("GetNFTTransferData/{scUID}/{toAddress}/{locators}")]
+        public async Task<string> GetNFTTransferData(string scUID, string toAddress, string locators)
+        {
+            var output = "";
+            var scStateTrei = SmartContractStateTrei.GetSmartContractState(scUID);
+
+            var sc = SmartContractMain.GenerateSmartContractInMemory(scStateTrei.ContractData);
+            try
+            {
+                //var result = await SmartContractWriterService.WriteSmartContract(sc);
+                var txData = "";
+
+                if (scStateTrei != null)
+                {
+                    var newSCInfo = new[]
+                    {
+                            new { Function = "Transfer()", 
+                                ContractUID = sc.SmartContractUID, 
+                                ToAddress = toAddress, 
+                                Data = scStateTrei.ContractData, 
+                                Locators = locators, //either beacons, or self kept (NA).
+                                MD5List = "NA"}
+                    };
+
+                    txData = JsonConvert.SerializeObject(newSCInfo);
+                    var txJToken = JToken.Parse(txData.ToString());
+                    output = txData;
+                }
+            }
+            catch (Exception ex)
+            {
+                output = JsonConvert.SerializeObject(new { Success = false, Message = ex.Message });
+            }
+
+            return output;
+        }
+
+        //2e if its NFT Burn. This = Transaction.Data 
+        [HttpGet("GetNFTBurnData/{scUID}/{fromAddress}/")]
+        public async Task<string> GetNFTBurnData(string scUID, string fromAddress)
+        {
+            var output = "";
+            var scStateTrei = SmartContractStateTrei.GetSmartContractState(scUID);
+
+            if(scStateTrei == null)
+            {
+                output = JsonConvert.SerializeObject(new {Success = false, Message = "Smart contract does not exist." });
+                return output;
+            }
+            
+            try
+            {
+                var txData = "";
+                var newSCInfo = new[]
+                {
+                        new { Function = "Burn()", 
+                            ContractUID = scUID, 
+                            FromAddress = fromAddress}
+                };
+
+                txData = JsonConvert.SerializeObject(newSCInfo);
+                var txJToken = JToken.Parse(txData.ToString());
+                output = JsonConvert.SerializeObject(new {Success = true, Message = txData });
+                
+            }
+            catch (Exception ex)
+            {
+                output = JsonConvert.SerializeObject(new { Success = false, Message = ex.Message });
+            }
+
+            return output;
+        }
+
         //Step 3.
         [HttpPost("GetRawTxFee")]
         public async Task<string> GetRawTxFee([FromBody] object jsonData)
@@ -52,7 +260,11 @@ namespace ReserveBlockCore.Controllers
             var output = "";
             try
             {
-                var tx = JsonConvert.DeserializeObject<Transaction>(jsonData.ToString());
+                var txJToken = JToken.Parse(jsonData.ToString());
+                Type type = typeof(string);
+                var dataTest = txJToken["Data"] != null ? txJToken["Data"].ToString(Formatting.None) : null;//sometest["Data"].ToObject<string>();
+                txJToken["Data"] = dataTest;
+                var tx = JsonConvert.DeserializeObject<Transaction>(txJToken.ToString());
 
                 var nTx = new Transaction
                 {
@@ -63,6 +275,7 @@ namespace ReserveBlockCore.Controllers
                     Fee = 0,
                     Nonce = AccountStateTrei.GetNextNonce(tx.FromAddress),
                     TransactionType = tx.TransactionType,
+                    Data = tx.Data
                 };
 
                 //Calculate fee for tx.
@@ -85,7 +298,11 @@ namespace ReserveBlockCore.Controllers
             var output = "";
             try
             {
-                var tx = JsonConvert.DeserializeObject<Transaction>(jsonData.ToString());
+                var txJToken = JToken.Parse(jsonData.ToString());
+                Type type = typeof(string);
+                var dataTest = txJToken["Data"] != null ? txJToken["Data"].ToString(Formatting.None) : null;//sometest["Data"].ToObject<string>();
+                txJToken["Data"] = dataTest;
+                var tx = JsonConvert.DeserializeObject<Transaction>(txJToken.ToString());
 
                 tx.Build();
 
@@ -137,7 +354,11 @@ namespace ReserveBlockCore.Controllers
             var output = "";
             try
             {
-                var transaction = JsonConvert.DeserializeObject<Transaction>(jsonData.ToString());
+                var txJToken = JToken.Parse(jsonData.ToString());
+                Type type = typeof(string);
+                var dataTest = txJToken["Data"] != null ? txJToken["Data"].ToString(Formatting.None) : null;//sometest["Data"].ToObject<string>();
+                txJToken["Data"] = dataTest;
+                var transaction = JsonConvert.DeserializeObject<Transaction>(txJToken.ToString());
 
                 if (transaction != null)
                 {
@@ -149,7 +370,6 @@ namespace ReserveBlockCore.Controllers
                     }
                     else
                     {
-
                         output = JsonConvert.SerializeObject(new { Result = "Fail", Message = $"Transaction was not verified. Error: {result.Item2}" });
                     }
                 }
@@ -174,7 +394,11 @@ namespace ReserveBlockCore.Controllers
             var output = "";
             try
             {
-                var transaction = JsonConvert.DeserializeObject<Transaction>(jsonData.ToString());
+                var txJToken = JToken.Parse(jsonData.ToString());
+                Type type = typeof(string);
+                var dataTest = txJToken["Data"] != null ? txJToken["Data"].ToString(Formatting.None) : null;//sometest["Data"].ToObject<string>();
+                txJToken["Data"] = dataTest;
+                var transaction = JsonConvert.DeserializeObject<Transaction>(txJToken.ToString());
 
                 if (transaction != null)
                 {
@@ -226,8 +450,8 @@ namespace ReserveBlockCore.Controllers
             return output;
         }
 
-        [HttpGet("CreateDnr/{address}/{name}")]
-        public async Task<string> CreateDnr(string address, string name)
+        [HttpGet("CreateADnr/{address}/{name}")]
+        public async Task<string> CreateADnr(string address, string name)
         {
             string output = "";
 
